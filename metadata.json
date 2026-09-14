@@ -1,0 +1,6 @@
+{
+  "name": "Compass SF",
+  "description": "AI-powered street-level resource navigator for San Francisco",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

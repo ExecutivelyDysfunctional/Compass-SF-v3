@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Pulsing beacon">
+  <defs>
+    <linearGradient id="bp-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2438"/>
+      <stop offset="1" stop-color="#0a0f1a"/>
+    </linearGradient>
+    <radialGradient id="bp-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffb020" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#ffb020" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="bp-core" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffe0a3"/>
+      <stop offset="1" stop-color="#e08a00"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="114" fill="url(#bp-bg)"/>
+  <circle cx="256" cy="256" r="200" fill="url(#bp-glow)"/>
+
+  <!-- two well-spaced rings: three caused a moire bullseye at small sizes -->
+  <circle cx="256" cy="256" r="192" fill="none" stroke="#ffb020" stroke-opacity="0.26" stroke-width="20"/>
+  <circle cx="256" cy="256" r="130" fill="none" stroke="#ffb020" stroke-opacity="0.66" stroke-width="24"/>
+
+  <circle cx="256" cy="256" r="66" fill="url(#bp-core)"/>
+</svg>

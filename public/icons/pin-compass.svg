@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Map pin with compass needle">
+  <defs>
+    <linearGradient id="pc-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2438"/>
+      <stop offset="1" stop-color="#0a0f1a"/>
+    </linearGradient>
+    <linearGradient id="pc-gold" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#ffd27a"/>
+      <stop offset="1" stop-color="#e08a00"/>
+    </linearGradient>
+    <linearGradient id="pc-needle" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#ffe0a3"/>
+      <stop offset="1" stop-color="#ffb020"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="114" fill="url(#pc-bg)"/>
+
+  <ellipse cx="256" cy="430" rx="76" ry="18" fill="#ffb020" opacity="0.18"/>
+
+  <!-- pin body -->
+  <path d="M256 66c-82 0-149 67-149 149 0 104 127 214 144 227a8 8 0 0 0 10 0c17-13 144-123 144-227 0-82-67-149-149-149Z"
+        fill="url(#pc-gold)"/>
+
+  <!-- dial: one bold needle instead of a four-point rose, which turned to mush small -->
+  <circle cx="256" cy="212" r="84" fill="#0f1626"/>
+  <polygon points="256,142 216,258 256,238" fill="#ffb020"/>
+  <polygon points="256,142 296,258 256,238" fill="url(#pc-needle)"/>
+</svg>

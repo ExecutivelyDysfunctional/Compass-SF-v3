@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Lantern">
+  <defs>
+    <linearGradient id="ln-bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a2438"/>
+      <stop offset="1" stop-color="#0a0f1a"/>
+    </linearGradient>
+    <radialGradient id="ln-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffb020" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffb020" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ln-flame" x1="0.5" y1="0" x2="0.5" y2="1">
+      <stop offset="0" stop-color="#ffe0a3"/>
+      <stop offset="1" stop-color="#e39100"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="114" fill="url(#ln-bg)"/>
+  <circle cx="256" cy="272" r="186" fill="url(#ln-glow)"/>
+
+  <!-- handle -->
+  <path d="M212 118a44 44 0 0 1 88 0" fill="none" stroke="#8fa0bd" stroke-width="15" stroke-linecap="round"/>
+
+  <!-- cap -->
+  <path d="M186 140h140a10 10 0 0 1 10 10l-8 22a10 10 0 0 1-10 8H194a10 10 0 0 1-10-8l-8-22a10 10 0 0 1 10-10Z" fill="#8fa0bd"/>
+
+  <!-- glass housing -->
+  <path d="M196 186h120a12 12 0 0 1 12 11l14 148a12 12 0 0 1-12 13H182a12 12 0 0 1-12-13l14-148a12 12 0 0 1 12-11Z"
+        fill="#0f1626" stroke="#3a4761" stroke-width="14" stroke-linejoin="round"/>
+
+  <!-- flame -->
+  <path d="M256 218c30 34 44 56 44 78a44 44 0 0 1-88 0c0-22 14-44 44-78Z" fill="url(#ln-flame)"/>
+  <circle cx="256" cy="306" r="17" fill="#fff3d6" opacity="0.9"/>
+
+  <!-- base -->
+  <rect x="166" y="366" width="180" height="30" rx="13" fill="#8fa0bd"/>
+</svg>
