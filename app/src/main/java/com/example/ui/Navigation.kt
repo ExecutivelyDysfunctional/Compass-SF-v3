@@ -1,7 +1,11 @@
 package com.example.ui
 
 import android.app.Application
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
@@ -11,15 +15,21 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-sealed class Screen(val route: String, val title: String, val icon: String) {
-    object Now : Screen("now", "Now", "🧭")
-    object Find : Screen("find", "Find", "🔎")
-    object Ask : Screen("ask", "Ask", "💬")
-    object Ebt : Screen("ebt", "EBT", "💳")
-    object Add : Screen("add", "Add", "➕")
-    object Day : Screen("day", "Day", "🗓️")
-    object Info : Screen("info", "Info", "ℹ️")
-    object Settings : Screen("settings", "Settings", "⚙️")
+sealed class Screen(
+    val route: String,
+    val title: String,
+    val icon: String,
+    val selectedIcon: ImageVector,
+    val unselectedIcon: ImageVector = selectedIcon
+) {
+    object Now : Screen("now", "Now", "🧭", Icons.Filled.Explore, Icons.Outlined.Explore)
+    object Find : Screen("find", "Find", "🔎", Icons.Filled.Search, Icons.Outlined.Search)
+    object Ask : Screen("ask", "Ask AI", "💬", Icons.Filled.AutoAwesome, Icons.Outlined.AutoAwesome)
+    object Day : Screen("day", "Day", "🗓️", Icons.Filled.Checklist, Icons.Outlined.Checklist)
+    object Ebt : Screen("ebt", "EBT", "💳", Icons.Filled.CreditCard, Icons.Outlined.CreditCard)
+    object Add : Screen("add", "Add", "➕", Icons.Filled.Add, Icons.Outlined.Add)
+    object Info : Screen("info", "Info", "ℹ️", Icons.Filled.Info, Icons.Outlined.Info)
+    object Settings : Screen("settings", "Settings", "⚙️", Icons.Filled.Settings, Icons.Outlined.Settings)
 }
 
 class CompassViewModel(application: Application) : AndroidViewModel(application) {
@@ -47,8 +57,13 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val askError = mutableStateOf<String?>(null)
     val askResult = mutableStateOf<AskResponse?>(null)
 
-    // --- Settings UI State ---
+    // --- Settings & Theming UI State ---
     val currentAppIconKey = mutableStateOf("classic")
+    val currentThemeMode = mutableStateOf(AppThemeMode.MIDNIGHT)
+    val currentAccentColor = mutableStateOf(AppAccentColor.BEACON)
+    val currentFontScale = mutableStateOf(AppFontScale.STANDARD)
+    val highContrastEnabled = mutableStateOf(false)
+    val compactListingEnabled = mutableStateOf(false)
 
     init {
         val database = AppDatabase.getDatabase(application)
@@ -69,11 +84,27 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         allCaptures = repository.allCapturesFlow
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-        // Check seeding and icon choice on start
+        // Check seeding and saved preferences on start
         viewModelScope.launch {
             repository.checkAndSeedDatabase()
             val savedIcon = repository.getSetting("app_icon") ?: "classic"
             currentAppIconKey.value = savedIcon
+
+            repository.getSetting("theme_mode")?.let { id ->
+                currentThemeMode.value = AppThemeMode.fromId(id)
+            }
+            repository.getSetting("accent_color")?.let { id ->
+                currentAccentColor.value = AppAccentColor.fromId(id)
+            }
+            repository.getSetting("font_scale")?.let { id ->
+                currentFontScale.value = AppFontScale.fromId(id)
+            }
+            repository.getSetting("high_contrast")?.let {
+                highContrastEnabled.value = it.toBooleanStrictOrNull() ?: false
+            }
+            repository.getSetting("compact_listing")?.let {
+                compactListingEnabled.value = it.toBooleanStrictOrNull() ?: false
+            }
         }
     }
 
@@ -137,6 +168,36 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             if (loc != null) {
                 repository.updateRmpLocation(loc.copy(personalNotes = notes))
             }
+        }
+    }
+
+    fun addRmpLocation(
+        name: String,
+        address: String,
+        neighborhood: String,
+        cuisine: String,
+        chain: Boolean,
+        phone: String,
+        hoursText: String,
+        notes: String,
+        tips: String
+    ) {
+        viewModelScope.launch {
+            repository.insertRmpLocation(
+                RmpLocation(
+                    name = name.trim(),
+                    address = address.trim(),
+                    neighborhood = neighborhood.trim(),
+                    cuisine = if (cuisine.isBlank()) "other" else cuisine.lowercase().trim(),
+                    chain = chain,
+                    phone = phone.trim(),
+                    hoursText = hoursText.trim(),
+                    notes = notes.trim(),
+                    tips = tips.trim(),
+                    confidence = "reported",
+                    createdVia = "manual"
+                )
+            )
         }
     }
 
@@ -275,6 +336,56 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         currentAppIconKey.value = iconKey
         viewModelScope.launch {
             repository.saveSetting("app_icon", iconKey)
+        }
+    }
+
+    fun selectThemeMode(mode: AppThemeMode) {
+        currentThemeMode.value = mode
+        viewModelScope.launch {
+            repository.saveSetting("theme_mode", mode.id)
+        }
+    }
+
+    fun selectAccentColor(accent: AppAccentColor) {
+        currentAccentColor.value = accent
+        viewModelScope.launch {
+            repository.saveSetting("accent_color", accent.id)
+        }
+    }
+
+    fun selectFontScale(scale: AppFontScale) {
+        currentFontScale.value = scale
+        viewModelScope.launch {
+            repository.saveSetting("font_scale", scale.id)
+        }
+    }
+
+    fun toggleHighContrast(enabled: Boolean) {
+        highContrastEnabled.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("high_contrast", enabled.toString())
+        }
+    }
+
+    fun toggleCompactListing(enabled: Boolean) {
+        compactListingEnabled.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("compact_listing", enabled.toString())
+        }
+    }
+
+    fun resetThemingToDefaults() {
+        currentThemeMode.value = AppThemeMode.MIDNIGHT
+        currentAccentColor.value = AppAccentColor.BEACON
+        currentFontScale.value = AppFontScale.STANDARD
+        highContrastEnabled.value = false
+        compactListingEnabled.value = false
+        viewModelScope.launch {
+            repository.saveSetting("theme_mode", AppThemeMode.MIDNIGHT.id)
+            repository.saveSetting("accent_color", AppAccentColor.BEACON.id)
+            repository.saveSetting("font_scale", AppFontScale.STANDARD.id)
+            repository.saveSetting("high_contrast", "false")
+            repository.saveSetting("compact_listing", "false")
         }
     }
 

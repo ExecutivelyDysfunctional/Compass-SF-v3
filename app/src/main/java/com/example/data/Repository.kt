@@ -13,16 +13,42 @@ class CompassRepository(private val dao: ResourceDao) {
     val allCapturesFlow: Flow<List<Capture>> = dao.getAllCapturesFlow()
 
     suspend fun checkAndSeedDatabase() = withContext(Dispatchers.IO) {
-        if (dao.getResourceCount() == 0) {
-            for (res in SeedData.SEED_RESOURCES) {
+        val existingResources = dao.getAllResources()
+        val existingMap = existingResources.associateBy { it.name.trim().lowercase() }
+        for (res in SeedData.SEED_RESOURCES) {
+            val existing = existingMap[res.name.trim().lowercase()]
+            if (existing == null) {
                 dao.insertResource(res)
+            } else if (existing.source.isBlank() && res.source.isNotBlank()) {
+                dao.updateResource(
+                    existing.copy(
+                        source = res.source,
+                        website = if (existing.website.isBlank()) res.website else existing.website
+                    )
+                )
             }
+        }
+        if (dao.getAllTasks().isEmpty()) {
             for (task in SeedData.SEED_TASKS) {
                 dao.insertTask(task)
             }
         }
-        if (dao.getRmpLocationCount() == 0) {
-            dao.insertRmpLocations(SeedData.SEED_RMP_LOCATIONS)
+        val existingRmp = dao.getAllRmpLocations()
+        val existingRmpMap = existingRmp.associateBy { it.name.trim().lowercase() }
+        for (rmp in SeedData.SEED_RMP_LOCATIONS) {
+            val existing = existingRmpMap[rmp.name.trim().lowercase()]
+            if (existing == null) {
+                dao.insertRmpLocation(rmp)
+            } else if (existing.hours.isEmpty() && rmp.hours.isNotEmpty()) {
+                dao.updateRmpLocation(
+                    existing.copy(
+                        hours = rmp.hours,
+                        hoursText = if (existing.hoursText.isBlank()) rmp.hoursText else existing.hoursText,
+                        phone = if (existing.phone.isBlank()) rmp.phone else existing.phone,
+                        tips = if (existing.tips.isBlank()) rmp.tips else existing.tips
+                    )
+                )
+            }
         }
     }
 
