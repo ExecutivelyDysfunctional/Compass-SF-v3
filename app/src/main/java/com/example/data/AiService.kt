@@ -35,7 +35,14 @@ data class Content(
 
 @Serializable
 data class Part(
-    val text: String? = null
+    val text: String? = null,
+    val inlineData: InlineData? = null
+)
+
+@Serializable
+data class InlineData(
+    val mimeType: String,
+    val data: String
 )
 
 @Serializable
@@ -198,6 +205,139 @@ object AiService {
     }
 
     /**
+     * Parses a flyer, clinic schedule, or document image into structured resource parameters using Gemini multimodal.
+     */
+    suspend fun parseFlyerImage(
+        base64Image: String,
+        mimeType: String = "image/jpeg",
+        notes: String = ""
+    ): ResourceDraft? = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        if (apiKey.isEmpty() || apiKey.startsWith("AQ.")) {
+            return@withContext runOfflineImageParser(notes)
+        }
+
+        val prompt = if (notes.isNotBlank()) {
+            """
+            Analyze this image of a community flyer, clinic schedule, street bulletin, or food pantry sign.
+            Additional context provided by user: "$notes".
+            Extract all key details (name, category, address, neighborhood, phone, website, schedule, cost, eligibility, documents to bring, requirements, and navigation tips).
+            Ensure you parse any open hours into structured daily blocks (0=Sun, 1=Mon, ..., 6=Sat) with HH:MM format.
+            """.trimIndent()
+        } else {
+            """
+            Analyze this image of a community flyer, clinic schedule, street bulletin, or food pantry sign.
+            Extract all key details (name, category, address, neighborhood, phone, website, schedule, cost, eligibility, documents to bring, requirements, and navigation tips).
+            Ensure you parse any open hours into structured daily blocks (0=Sun, 1=Mon, ..., 6=Sat) with HH:MM format.
+            """.trimIndent()
+        }
+
+        val systemInstruction = """
+            You are an expert community data analyst and street navigator for Compass SF.
+            You inspect street flyers, pantry schedules, clinic documents, and notices to build verified resource directory entries.
+            Extract details accurately:
+            - "name": Official organization or service name on the flyer.
+            - "category": Choose best fit among: "food", "shelter", "hygiene", "health", "mental", "documents", "benefits", "legal", "work", "connect", "storage", "transit", "pets", "community", "other".
+            - "alsoOffers": List of secondary services offered (e.g. showers, mail service, clothing).
+            - "summary": Clear 1-sentence summary of what this program provides.
+            - "description": Comprehensive description of services, instructions, and details.
+            - "address": Full street address in San Francisco (e.g. "330 Ellis St, San Francisco, CA").
+            - "neighborhood": SF neighborhood (e.g. Tenderloin, SoMa, Mission, Bayview, Chinatown, Civic Center, Castro, Richmond, Sunset).
+            - "phone": Contact phone number if listed.
+            - "website": Website or email if listed.
+            - "hoursText": Plain English description of hours/schedule as written on flyer.
+            - "hours": Structured array of day blocks (day: 0=Sun..6=Sat, open: "HH:MM", close: "HH:MM", label: e.g. "Lunch" or "Walk-in Clinic").
+            - "open24": Boolean indicating 24/7 access.
+            - "requirements": List of requirements (e.g. "ID required", "SF resident", "No intake required").
+            - "bring": List of documents/items to bring (e.g. "Photo ID", "Proof of income").
+            - "eligibility": Specific eligibility criteria or "Open to all".
+            - "cost": "Free", "Sliding scale", or cost details.
+            - "languages": Spoken/available languages (e.g. "English", "Spanish", "Cantonese").
+            - "tags": Relevant keywords for search.
+            - "aiTips": Street-smart advice for visitors (e.g. "Arrive 15 minutes before opening to get a ticket", "Lines form on Ellis St").
+            Return only valid JSON matching the schema.
+        """.trimIndent()
+
+        val schemaJson = buildJsonObject {
+            put("type", "OBJECT")
+            putJsonObject("properties") {
+                putJsonObject("name") { put("type", "STRING") }
+                putJsonObject("category") { put("type", "STRING") }
+                putJsonObject("alsoOffers") {
+                    put("type", "ARRAY")
+                    putJsonObject("items") { put("type", "STRING") }
+                }
+                putJsonObject("summary") { put("type", "STRING") }
+                putJsonObject("description") { put("type", "STRING") }
+                putJsonObject("address") { put("type", "STRING") }
+                putJsonObject("neighborhood") { put("type", "STRING") }
+                putJsonObject("phone") { put("type", "STRING") }
+                putJsonObject("website") { put("type", "STRING") }
+                putJsonObject("hoursText") { put("type", "STRING") }
+                putJsonObject("hours") {
+                    put("type", "ARRAY")
+                    putJsonObject("items") {
+                        put("type", "OBJECT")
+                        putJsonObject("properties") {
+                            putJsonObject("day") { put("type", "INTEGER") }
+                            putJsonObject("open") { put("type", "STRING"); put("description", "HH:MM format") }
+                            putJsonObject("close") { put("type", "STRING"); put("description", "HH:MM format") }
+                            putJsonObject("label") { put("type", "STRING") }
+                        }
+                    }
+                }
+                putJsonObject("open24") { put("type", "BOOLEAN") }
+                putJsonObject("requirements") {
+                    put("type", "ARRAY")
+                    putJsonObject("items") { put("type", "STRING") }
+                }
+                putJsonObject("bring") {
+                    put("type", "ARRAY")
+                    putJsonObject("items") { put("type", "STRING") }
+                }
+                putJsonObject("eligibility") { put("type", "STRING") }
+                putJsonObject("cost") { put("type", "STRING") }
+                putJsonObject("languages") {
+                    put("type", "ARRAY")
+                    putJsonObject("items") { put("type", "STRING") }
+                }
+                putJsonObject("tags") {
+                    put("type", "ARRAY")
+                    putJsonObject("items") { put("type", "STRING") }
+                }
+                putJsonObject("aiTips") { put("type", "STRING") }
+            }
+        }
+
+        val request = GenerateContentRequest(
+            contents = listOf(
+                Content(
+                    parts = listOf(
+                        Part(text = prompt),
+                        Part(inlineData = InlineData(mimeType = mimeType, data = base64Image))
+                    )
+                )
+            ),
+            systemInstruction = Content(parts = listOf(Part(text = systemInstruction))),
+            generationConfig = GenerationConfig(
+                responseFormat = ResponseFormat(ResponseFormatText(mimeType = "application/json", schema = schemaJson)),
+                temperature = 0.1f
+            )
+        )
+
+        try {
+            val response = RetrofitClient.service.generateContent(apiKey, request)
+            val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                ?: return@withContext runOfflineImageParser(notes)
+            Log.d("AiService", "Parsed flyer image response: $jsonText")
+            return@withContext json.decodeFromString<ResourceDraft>(jsonText)
+        } catch (e: Exception) {
+            Log.e("AiService", "Failed to parse image via Gemini API, falling back to offline", e)
+            return@withContext runOfflineImageParser(notes)
+        }
+    }
+
+    /**
      * Answers queries based on the available resources and picks matches.
      */
     suspend fun askAi(
@@ -316,6 +456,30 @@ object AiService {
             languages = emptyList(),
             tags = listOf("unverified", "manual"),
             aiTips = "Added via manual entry fallback."
+        )
+    }
+
+    private fun runOfflineImageParser(notes: String): ResourceDraft {
+        return ResourceDraft(
+            name = if (notes.isNotBlank()) notes.take(30) else "New Flyer Resource",
+            category = "food",
+            alsoOffers = emptyList(),
+            summary = if (notes.isNotBlank()) notes else "Captured from flyer image",
+            description = if (notes.isNotBlank()) "Notes: $notes\n(Captured via Flyer Photo Ingestion)" else "Captured from street flyer photo.",
+            address = "San Francisco, CA",
+            neighborhood = "Tenderloin",
+            phone = "",
+            website = "",
+            hoursText = "Check flyer photo for schedule",
+            hours = emptyList(),
+            open24 = false,
+            requirements = listOf("Check intake rules"),
+            bring = listOf("ID if available"),
+            eligibility = "Open to community",
+            cost = "Free",
+            languages = listOf("English", "Spanish"),
+            tags = listOf("flyer", "photo-scan", "community"),
+            aiTips = "Photo flyer saved. Please review and adjust hours or contact info if needed."
         )
     }
 

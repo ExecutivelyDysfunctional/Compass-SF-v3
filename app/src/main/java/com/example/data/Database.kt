@@ -29,6 +29,12 @@ interface ResourceDao {
     suspend fun getResourceCount(): Int
 
     // Visits
+    @Query("SELECT * FROM visits ORDER BY visitedAt DESC")
+    fun getAllVisitsFlow(): Flow<List<Visit>>
+
+    @Query("SELECT * FROM visits ORDER BY visitedAt DESC")
+    suspend fun getAllVisits(): List<Visit>
+
     @Query("SELECT * FROM visits WHERE resourceId = :resourceId ORDER BY visitedAt DESC")
     fun getVisitsForResourceFlow(resourceId: Int): Flow<List<Visit>>
 
@@ -37,6 +43,9 @@ interface ResourceDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertVisit(visit: Visit): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertVisits(visits: List<Visit>): List<Long>
 
     // Tasks
     @Query("SELECT * FROM tasks ORDER BY done ASC, priority ASC, id DESC")
@@ -114,7 +123,7 @@ interface ResourceDao {
         AppSetting::class,
         Capture::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

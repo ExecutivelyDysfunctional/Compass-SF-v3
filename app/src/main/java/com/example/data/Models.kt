@@ -111,6 +111,8 @@ data class RmpLocation(
     val address: String = "",
     val neighborhood: String = "",
     val zip: String = "",
+    val lat: Double? = null,
+    val lng: Double? = null,
     val cuisine: String = "other", // pizza | chinese | burgers | chicken | halal etc.
     val chain: Boolean = false,
     val phone: String = "",
@@ -182,3 +184,95 @@ class Converters {
         emptyList()
     }
 }
+
+// --- Backup and Restore Models ---
+
+@Serializable
+data class ResourceUserDataBackup(
+    val resourceId: Int? = null,
+    val name: String,
+    val address: String = "",
+    val favorite: Boolean = false,
+    val personalNotes: String = ""
+)
+
+@Serializable
+data class RmpUserDataBackup(
+    val rmpId: Int? = null,
+    val name: String,
+    val address: String = "",
+    val favorite: Boolean = false,
+    val personalNotes: String = "",
+    val timesUsed: Int = 0,
+    val lastUsedAt: Long? = null
+)
+
+@Serializable
+data class VisitBackup(
+    val id: Int = 0,
+    val resourceId: Int,
+    val resourceName: String = "",
+    val resourceAddress: String = "",
+    val visitedAt: Long = System.currentTimeMillis(),
+    val outcome: String = "got_help",
+    val waitMinutes: Int? = null,
+    val rating: Int? = null,
+    val notes: String = ""
+)
+
+@Serializable
+data class TaskBackup(
+    val id: Int = 0,
+    val title: String,
+    val notes: String = "",
+    val kind: String = "errand",
+    val dueAt: Long? = null,
+    val resourceId: Int? = null,
+    val resourceName: String? = null,
+    val done: Boolean = false,
+    val priority: Int = 2,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
+@Serializable
+data class BackupMetadata(
+    val app: String = "Compass SF",
+    val version: Int = 1,
+    val exportedAt: Long = System.currentTimeMillis(),
+    val exportedDateFormatted: String = "",
+    val totalFavorites: Int = 0,
+    val totalNotes: Int = 0,
+    val totalVisits: Int = 0,
+    val totalTasks: Int = 0,
+    val totalCustomPlaces: Int = 0
+)
+
+@Serializable
+data class CompassBackup(
+    val metadata: BackupMetadata = BackupMetadata(),
+    val resources: List<ResourceUserDataBackup> = emptyList(),
+    val rmpLocations: List<RmpUserDataBackup> = emptyList(),
+    val visits: List<VisitBackup> = emptyList(),
+    val tasks: List<TaskBackup> = emptyList(),
+    val customResources: List<Resource> = emptyList(),
+    val customRmpLocations: List<RmpLocation> = emptyList()
+)
+
+data class ImportPreview(
+    val app: String,
+    val exportedDate: String,
+    val favoriteCount: Int,
+    val notesCount: Int,
+    val visitCount: Int,
+    val taskCount: Int,
+    val customPlacesCount: Int,
+    val rawBackup: CompassBackup
+)
+
+data class ImportResult(
+    val favoritesUpdated: Int,
+    val notesUpdated: Int,
+    val visitsRestored: Int,
+    val tasksRestored: Int,
+    val customPlacesRestored: Int
+)

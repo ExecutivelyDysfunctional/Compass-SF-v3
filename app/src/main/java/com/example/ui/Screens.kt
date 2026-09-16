@@ -13,6 +13,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -27,14 +30,26 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import coil.compose.AsyncImage
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.example.data.*
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -85,6 +100,276 @@ fun formatTime(timeStr: String): String {
     return "$displayHr$displayMin$suffix"
 }
 
+// --- Location Selector & Dialog Components ---
+
+@Composable
+fun LocationAnchorDialog(
+    viewModel: CompassViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val userLocation by viewModel.userLocation
+    val isLocating by viewModel.isLocating
+    val selectedAnchorId by viewModel.selectedNeighborhoodAnchorId
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[android.Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            viewModel.requestDeviceLocation(context)
+            onDismiss()
+        } else {
+            viewModel.locationPermissionDenied.value = true
+            Toast.makeText(
+                context,
+                "Location permission not granted. You can still choose a SF neighborhood anchor below!",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Ink900,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.LocationOn, contentDescription = null, tint = Beacon500)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Street Location & Proximity", color = Mist100, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    "Calculates walking distances locally on your device without transmitting coordinates anywhere.",
+                    color = Mist400,
+                    fontSize = 13.sp
+                )
+
+                // Current GPS Option
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (userLocation != null && !userLocation!!.isManualAnchor) Beacon500.copy(alpha = 0.15f) else Ink800
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (userLocation != null && !userLocation!!.isManualAnchor) Beacon500 else Ink700
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            permissionLauncher.launch(
+                                arrayOf(
+                                    android.Manifest.permission.ACCESS_FINE_LOCATION,
+                                    android.Manifest.permission.ACCESS_COARSE_LOCATION
+                                )
+                            )
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(if (isLocating) Beacon500 else Ink700, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isLocating) {
+                                CircularProgressIndicator(color = OnAccentColor, modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(
+                                    Icons.Default.MyLocation,
+                                    contentDescription = null,
+                                    tint = if (userLocation != null && !userLocation!!.isManualAnchor) Beacon400 else Mist100,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Use Current GPS Location", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                            Text("Auto-detect closest street coordinate", color = Mist400, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Ink800)
+
+                Text(
+                    "Or Choose SF Neighborhood Anchor:",
+                    color = Beacon400,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp
+                )
+
+                LocationHelper.NEIGHBORHOOD_ANCHORS.forEach { anchor ->
+                    val isSelected = selectedAnchorId == anchor.id || (userLocation?.isManualAnchor == true && userLocation?.label == anchor.name)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) Beacon500.copy(alpha = 0.2f) else Ink800)
+                            .border(1.dp, if (isSelected) Beacon500 else Ink700, RoundedCornerShape(8.dp))
+                            .clickable {
+                                viewModel.setNeighborhoodAnchor(anchor)
+                                onDismiss()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = {
+                                viewModel.setNeighborhoodAnchor(anchor)
+                                onDismiss()
+                            },
+                            colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(anchor.name, fontWeight = FontWeight.SemiBold, color = Mist100, fontSize = 13.sp)
+                            Text(anchor.subtitle, color = Mist400, fontSize = 11.sp)
+                        }
+                    }
+                }
+
+                if (userLocation != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.clearLocation()
+                            onDismiss()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Rose500),
+                        border = BorderStroke(1.dp, Rose500.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.LocationOff, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Clear Location / Disable Proximity", fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor)
+            ) {
+                Text("Done")
+            }
+        }
+    )
+}
+
+@Composable
+fun LocationBar(
+    viewModel: CompassViewModel,
+    onOpenDialog: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val userLocation by viewModel.userLocation
+    val sortByDistance by viewModel.sortByDistance
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = Ink900),
+        border = BorderStroke(1.dp, if (sortByDistance && userLocation != null) Beacon500.copy(alpha = 0.8f) else Ink700),
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onOpenDialog)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
+            ) {
+                Icon(
+                    imageVector = if (userLocation != null && !userLocation!!.isManualAnchor) Icons.Default.MyLocation else Icons.Default.LocationOn,
+                    contentDescription = "Location Anchor",
+                    tint = if (sortByDistance && userLocation != null) Beacon500 else Mist400,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    val label = when {
+                        userLocation == null -> "Set Location Anchor (GPS / SF Neighborhood)"
+                        userLocation!!.isManualAnchor -> "Near ${userLocation!!.label}"
+                        else -> "Near Current GPS Location"
+                    }
+                    Text(
+                        text = label,
+                        color = if (sortByDistance && userLocation != null) Mist100 else Mist400,
+                        fontSize = 12.sp,
+                        fontWeight = if (sortByDistance && userLocation != null) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = when {
+                            userLocation == null -> "Tap to enable walking distances"
+                            sortByDistance -> "Sorted by closest proximity • Tap to change"
+                            else -> "Proximity sorting paused • Tap to configure"
+                        },
+                        color = if (sortByDistance && userLocation != null) Beacon400 else Mist400,
+                        fontSize = 10.sp
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(8.dp))
+
+            // Quick Sort Toggle Chip
+            FilterChip(
+                selected = sortByDistance && userLocation != null,
+                onClick = {
+                    if (userLocation == null) {
+                        onOpenDialog()
+                    } else {
+                        viewModel.toggleSortByDistance()
+                    }
+                },
+                label = { Text("Nearest", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.NearMe,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (sortByDistance && userLocation != null) OnAccentColor else Mist400
+                    )
+                },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = Beacon500,
+                    selectedLabelColor = OnAccentColor,
+                    containerColor = Ink800,
+                    labelColor = Mist100
+                ),
+                border = FilterChipDefaults.filterChipBorder(
+                    borderColor = if (sortByDistance && userLocation != null) Beacon500 else Ink700,
+                    selectedBorderColor = Beacon500,
+                    enabled = true,
+                    selected = sortByDistance && userLocation != null
+                ),
+                modifier = Modifier.defaultMinSize(minHeight = 36.dp)
+            )
+        }
+    }
+}
+
 // --- Now Screen (Dashboard) ---
 @Composable
 fun NowScreen(
@@ -94,9 +379,19 @@ fun NowScreen(
 ) {
     val resources by viewModel.allResources.collectAsState()
     val tasks by viewModel.allTasks.collectAsState()
+    val userLocation by viewModel.userLocation
+    val sortByDistance by viewModel.sortByDistance
+    var showLocationDialog by remember { mutableStateOf(false) }
     
-    val openNowList = remember(resources) {
-        resources.filter { !it.hidden && isResourceOpen(it.open24, it.hours) }.take(4)
+    val openNowList = remember(resources, userLocation, sortByDistance) {
+        val openResources = resources.filter { !it.hidden && isResourceOpen(it.open24, it.hours) }
+        if (sortByDistance && userLocation != null) {
+            openResources.sortedBy { res ->
+                viewModel.getDistanceToResource(res) ?: Double.MAX_VALUE
+            }.take(4)
+        } else {
+            openResources.take(4)
+        }
     }
 
     val greeting = remember {
@@ -130,6 +425,14 @@ fun NowScreen(
             )
         }
 
+        // Location & Proximity Bar
+        item {
+            LocationBar(
+                viewModel = viewModel,
+                onOpenDialog = { showLocationDialog = true }
+            )
+        }
+
         // Quick Category Row
         item {
             Text(
@@ -155,7 +458,8 @@ fun NowScreen(
                         onClick = { onNavigateToFind(cat) },
                         label = { Text(label, color = Mist100) },
                         colors = AssistChipDefaults.assistChipColors(containerColor = Ink900),
-                        border = BorderStroke(1.dp, Ink700)
+                        border = BorderStroke(1.dp, Ink700),
+                        modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                     )
                 }
             }
@@ -200,17 +504,18 @@ fun NowScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 48.dp)
                                     .clickable { viewModel.toggleTask(task) }
-                                    .padding(vertical = 4.dp),
+                                    .padding(vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CheckBoxOutlineBlank,
                                     contentDescription = "Unchecked",
                                     tint = Beacon500,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(22.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
                                 Text(
                                     text = task.title,
                                     style = MaterialTheme.typography.bodyMedium,
@@ -227,12 +532,26 @@ fun NowScreen(
 
         // Open Now Spotlights
         item {
-            Text(
-                text = "Open Right Now in SF",
-                style = MaterialTheme.typography.titleMedium,
-                color = Mist100,
-                fontWeight = FontWeight.SemiBold
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (sortByDistance && userLocation != null) "Closest Open Resources in SF" else "Open Right Now in SF",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Mist100,
+                    fontWeight = FontWeight.SemiBold
+                )
+                if (sortByDistance && userLocation != null) {
+                    Text(
+                        text = "Nearest first",
+                        color = Beacon400,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
         }
 
         if (openNowList.isEmpty()) {
@@ -250,6 +569,7 @@ fun NowScreen(
             items(openNowList) { res ->
                 ResourceCard(
                     resource = res,
+                    distanceMiles = viewModel.getDistanceToResource(res),
                     onCardClick = { onNavigateToDetail(res.id) },
                     onFavoriteClick = { viewModel.toggleResourceFavorite(res) }
                 )
@@ -259,6 +579,13 @@ fun NowScreen(
         item {
             Spacer(modifier = Modifier.height(80.dp))
         }
+    }
+
+    if (showLocationDialog) {
+        LocationAnchorDialog(
+            viewModel = viewModel,
+            onDismiss = { showLocationDialog = false }
+        )
     }
 }
 
@@ -270,6 +597,9 @@ fun FindScreen(
     onNavigateToDetail: (Int) -> Unit
 ) {
     val resources by viewModel.allResources.collectAsState()
+    val userLocation by viewModel.userLocation
+    val sortByDistance by viewModel.sortByDistance
+    var showLocationDialog by remember { mutableStateOf(false) }
     
     var searchQuery by remember { mutableStateOf("") }
     var selectedCategory by remember { mutableStateOf(if (initialCategory.isBlank()) "all" else initialCategory) }
@@ -304,8 +634,8 @@ fun FindScreen(
         "211" to "211 Bay Area"
     )
 
-    val filteredList = remember(resources, searchQuery, selectedCategory, selectedNeighborhood, selectedSource, filterOpenNow, filterFavorites, filterHidden) {
-        resources.filter { res ->
+    val filteredList = remember(resources, searchQuery, selectedCategory, selectedNeighborhood, selectedSource, filterOpenNow, filterFavorites, filterHidden, userLocation, sortByDistance) {
+        val list = resources.filter { res ->
             val matchesSearch = res.name.contains(searchQuery, ignoreCase = true) || 
                     res.summary.contains(searchQuery, ignoreCase = true) ||
                     res.description.contains(searchQuery, ignoreCase = true) ||
@@ -320,6 +650,13 @@ fun FindScreen(
 
             matchesSearch && matchesCategory && matchesNeighborhood && matchesSource && matchesOpen && matchesFav && matchesHidden
         }
+        if (sortByDistance && userLocation != null) {
+            list.sortedBy { res ->
+                viewModel.getDistanceToResource(res) ?: Double.MAX_VALUE
+            }
+        } else {
+            list
+        }
     }
 
     Column(
@@ -333,10 +670,17 @@ fun FindScreen(
             onValueChange = { searchQuery = it },
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp)
                 .testTag("search_input"),
             placeholder = { Text("Search meals, clinics, shelter, IDs, sources...", color = Mist400) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = Mist400) },
+            trailingIcon = {
+                if (searchQuery.isNotBlank()) {
+                    IconButton(onClick = { searchQuery = "" }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear search", tint = Mist400, modifier = Modifier.size(18.dp))
+                    }
+                }
+            },
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = Ink900,
                 unfocusedContainerColor = Ink900,
@@ -349,11 +693,20 @@ fun FindScreen(
             singleLine = true
         )
 
+        // Location & Proximity Bar
+        LocationBar(
+            viewModel = viewModel,
+            onOpenDialog = { showLocationDialog = true },
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
         // Categories chip row
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(bottom = 8.dp)
+            modifier = Modifier.padding(bottom = 6.dp)
         ) {
             items(categories) { (id, label) ->
                 val isSelected = selectedCategory == id
@@ -367,7 +720,8 @@ fun FindScreen(
                         containerColor = Ink900,
                         labelColor = Mist400
                     ),
-                    border = BorderStroke(1.dp, if (isSelected) Beacon500 else Ink700)
+                    border = BorderStroke(1.dp, if (isSelected) Beacon500 else Ink700),
+                    modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                 )
             }
         }
@@ -387,7 +741,8 @@ fun FindScreen(
                         onClick = { nDropdownExpanded = true },
                         colors = ButtonDefaults.buttonColors(containerColor = Ink900),
                         border = BorderStroke(1.dp, Ink700),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                     ) {
                         Text(neighborhoods.find { it.first == selectedNeighborhood }?.second ?: "Neighborhood", color = Mist100, fontSize = 12.sp)
                         Icon(Icons.Default.ArrowDropDown, "down", tint = Mist400)
@@ -415,7 +770,8 @@ fun FindScreen(
                         onClick = { sDropdownExpanded = true },
                         colors = ButtonDefaults.buttonColors(containerColor = Ink900),
                         border = BorderStroke(1.dp, if (selectedSource != "all") Beacon500 else Ink700),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                     ) {
                         Text(sources.find { it.first == selectedSource }?.second ?: "Source", color = if (selectedSource != "all") Beacon400 else Mist100, fontSize = 12.sp)
                         Icon(Icons.Default.ArrowDropDown, "down", tint = Mist400)
@@ -438,47 +794,47 @@ fun FindScreen(
                 }
             }
 
-            // Quick toggles
+            // Quick toggles (44px / 48dp thumb touch targets for Pixel 8 Pro)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 IconButton(
                     onClick = { filterOpenNow = !filterOpenNow },
                     modifier = Modifier
-                        .size(36.dp)
-                        .background(if (filterOpenNow) Beacon500 else Ink900, RoundedCornerShape(6.dp)),
+                        .size(44.dp)
+                        .background(if (filterOpenNow) Beacon500 else Ink900, RoundedCornerShape(8.dp)),
                 ) {
                     Icon(
                         Icons.Outlined.AccessTime,
                         contentDescription = "Open Now",
                         tint = if (filterOpenNow) Ink950 else Mist400,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
                 IconButton(
                     onClick = { filterFavorites = !filterFavorites },
                     modifier = Modifier
-                        .size(36.dp)
-                        .background(if (filterFavorites) Beacon500 else Ink900, RoundedCornerShape(6.dp))
+                        .size(44.dp)
+                        .background(if (filterFavorites) Beacon500 else Ink900, RoundedCornerShape(8.dp))
                 ) {
                     Icon(
                         if (filterFavorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Favorites",
                         tint = if (filterFavorites) Ink950 else Mist400,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
                 IconButton(
                     onClick = { filterHidden = !filterHidden },
                     modifier = Modifier
-                        .size(36.dp)
-                        .background(if (filterHidden) Rose500 else Ink900, RoundedCornerShape(6.dp))
+                        .size(44.dp)
+                        .background(if (filterHidden) Rose500 else Ink900, RoundedCornerShape(8.dp))
                 ) {
                     Icon(
                         if (filterHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                         contentDescription = "Hidden Items",
                         tint = if (filterHidden) Mist100 else Mist400,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -492,7 +848,7 @@ fun FindScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Showing ${filteredList.size} matches",
+                text = if (sortByDistance && userLocation != null) "Showing ${filteredList.size} matches (sorted by proximity)" else "Showing ${filteredList.size} matches",
                 fontSize = 12.sp,
                 color = Mist400
             )
@@ -508,23 +864,23 @@ fun FindScreen(
                 Button(
                     onClick = { isMapView = false },
                     colors = ButtonDefaults.buttonColors(containerColor = if (!isMapView) Beacon500 else Color.Transparent),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    modifier = Modifier.height(30.dp)
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.height(44.dp)
                 ) {
-                    Icon(Icons.Default.List, contentDescription = "List View", tint = if (!isMapView) Ink950 else Mist400, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.List, contentDescription = "List View", tint = if (!isMapView) Ink950 else Mist400, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("List", color = if (!isMapView) Ink950 else Mist400, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("List", color = if (!isMapView) Ink950 else Mist400, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
 
                 Button(
                     onClick = { isMapView = true },
                     colors = ButtonDefaults.buttonColors(containerColor = if (isMapView) Beacon500 else Color.Transparent),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    modifier = Modifier.height(30.dp)
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                    modifier = Modifier.height(44.dp)
                 ) {
-                    Icon(Icons.Default.Map, contentDescription = "Map View", tint = if (isMapView) Ink950 else Mist400, modifier = Modifier.size(14.dp))
+                    Icon(Icons.Default.Map, contentDescription = "Map View", tint = if (isMapView) Ink950 else Mist400, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Map", color = if (isMapView) Ink950 else Mist400, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Map", color = if (isMapView) Ink950 else Mist400, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -558,6 +914,7 @@ fun FindScreen(
                     items(filteredList) { res ->
                         ResourceCard(
                             resource = res,
+                            distanceMiles = viewModel.getDistanceToResource(res),
                             onCardClick = { onNavigateToDetail(res.id) },
                             onFavoriteClick = { viewModel.toggleResourceFavorite(res) }
                         )
@@ -569,6 +926,13 @@ fun FindScreen(
                 }
             }
         }
+    }
+
+    if (showLocationDialog) {
+        LocationAnchorDialog(
+            viewModel = viewModel,
+            onDismiss = { showLocationDialog = false }
+        )
     }
 }
 
@@ -708,8 +1072,8 @@ fun ResourceMapView(
 
                 Box(
                     modifier = Modifier
-                        .offset { androidx.compose.ui.unit.IntOffset((pinX - 16).toInt(), (pinY - 16).toInt()) }
-                        .size(32.dp)
+                        .offset { androidx.compose.ui.unit.IntOffset((pinX - 22).toInt(), (pinY - 22).toInt()) }
+                        .size(44.dp)
                         .clickable { selectedResource = res },
                     contentAlignment = Alignment.Center
                 ) {
@@ -717,7 +1081,8 @@ fun ResourceMapView(
                         shape = CircleShape,
                         color = if (isSelected) Mist100 else pinColor,
                         shadowElevation = if (isSelected) 8.dp else 4.dp,
-                        border = BorderStroke(2.dp, if (isSelected) Beacon500 else Ink950)
+                        border = BorderStroke(2.dp, if (isSelected) Beacon500 else Ink950),
+                        modifier = Modifier.size(34.dp)
                     ) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -913,7 +1278,9 @@ fun AskScreen(
                 // Open only checkbox
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.clickable { viewModel.askOpenOnly.value = !viewModel.askOpenOnly.value }
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 48.dp)
+                        .clickable { viewModel.askOpenOnly.value = !viewModel.askOpenOnly.value }
                 ) {
                     Checkbox(
                         checked = viewModel.askOpenOnly.value,
@@ -931,6 +1298,7 @@ fun AskScreen(
                 enabled = !isAsking && viewModel.askQuestion.value.isNotBlank(),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 48.dp)
                     .testTag("ask_button"),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Beacon500,
@@ -949,11 +1317,22 @@ fun AskScreen(
 
         if (askError != null) {
             item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Ink900),
-                    border = BorderStroke(1.dp, Rose500)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF7F1D1D).copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                        .border(1.dp, Rose500, RoundedCornerShape(8.dp))
+                        .padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(askError!!, color = Rose500, modifier = Modifier.padding(12.dp))
+                    Text("⚠️", fontSize = 16.sp)
+                    Text(
+                        askError!!,
+                        color = Mist100,
+                        fontSize = 13.sp,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
         }
@@ -1035,6 +1414,9 @@ fun EbtScreen(
 ) {
     val context = LocalContext.current
     val rmpLocations by viewModel.allRmpLocations.collectAsState()
+    val userLocation by viewModel.userLocation
+    val sortByDistance by viewModel.sortByDistance
+    var showLocationDialog by remember { mutableStateOf(false) }
     
     var searchQuery by remember { mutableStateOf("") }
     var selectedCuisine by remember { mutableStateOf("all") }
@@ -1052,8 +1434,8 @@ fun EbtScreen(
     val neighborhoods = listOf("all" to "All Neighborhoods") +
             rmpLocations.map { it.neighborhood }.filter { it.isNotBlank() }.distinct().sorted().map { it to it }
 
-    val filteredList = remember(rmpLocations, searchQuery, selectedCuisine, selectedNeighborhood, filterFavorites, filterChains, filterOpenNow) {
-        rmpLocations.filter { loc ->
+    val filteredList = remember(rmpLocations, searchQuery, selectedCuisine, selectedNeighborhood, filterFavorites, filterChains, filterOpenNow, userLocation, sortByDistance) {
+        val list = rmpLocations.filter { loc ->
             val matchesSearch = loc.name.contains(searchQuery, ignoreCase = true) || 
                     loc.address.contains(searchQuery, ignoreCase = true) ||
                     loc.neighborhood.contains(searchQuery, ignoreCase = true) ||
@@ -1066,6 +1448,13 @@ fun EbtScreen(
             val matchesOpen = !filterOpenNow || isResourceOpen(loc.open24, loc.hours)
 
             matchesSearch && matchesCuisine && matchesNeighborhood && matchesFav && matchesChain && matchesOpen
+        }
+        if (sortByDistance && userLocation != null) {
+            list.sortedBy { loc ->
+                viewModel.getDistanceToRmp(loc) ?: Double.MAX_VALUE
+            }
+        } else {
+            list
         }
     }
 
@@ -1104,6 +1493,14 @@ fun EbtScreen(
                     Text("Add Spot", color = Mist100, fontSize = 12.sp)
                 }
             }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Location & Proximity Bar
+            LocationBar(
+                viewModel = viewModel,
+                onOpenDialog = { showLocationDialog = true }
+            )
 
             Spacer(modifier = Modifier.height(8.dp))
 
@@ -1152,27 +1549,27 @@ fun EbtScreen(
                                         try {
                                             context.startActivity(dialIntent)
                                         } catch (e: Exception) {
-                                            Toast.makeText(context, "Cannot open dialer", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Cannot open dialer: ${e.localizedMessage ?: "No phone app"}", Toast.LENGTH_SHORT).show()
                                         }
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Beacon500),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                                    modifier = Modifier.height(30.dp)
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                    modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                                 ) {
-                                    Icon(Icons.Default.Phone, contentDescription = "Call", tint = OnAccentColor, modifier = Modifier.size(13.dp))
-                                    Spacer(modifier = Modifier.width(3.dp))
-                                    Text("Helpline", color = OnAccentColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Icon(Icons.Default.Phone, contentDescription = "Call", tint = OnAccentColor, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Helpline", color = OnAccentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 IconButton(
                                     onClick = { showCardCodingNotice = false },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(44.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
                                         contentDescription = "Dismiss notice",
                                         tint = Mist400,
-                                        modifier = Modifier.size(16.dp)
+                                        modifier = Modifier.size(18.dp)
                                     )
                                 }
                             }
@@ -1236,7 +1633,7 @@ fun EbtScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = if (selectedCuisine != "all") Beacon500 else Ink900),
                     border = BorderStroke(1.dp, Ink700),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 44.dp)
                 ) {
                     Text(
                         cuisines.find { it.first == selectedCuisine }?.second ?: "Cuisine",
@@ -1277,7 +1674,7 @@ fun EbtScreen(
                     colors = ButtonDefaults.buttonColors(containerColor = if (selectedNeighborhood != "all") Beacon500 else Ink900),
                     border = BorderStroke(1.dp, Ink700),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 44.dp)
                 ) {
                     Text(
                         neighborhoods.find { it.first == selectedNeighborhood }?.second ?: "Area",
@@ -1314,15 +1711,15 @@ fun EbtScreen(
             IconButton(
                 onClick = { filterOpenNow = !filterOpenNow },
                 modifier = Modifier
-                    .size(36.dp)
-                    .background(if (filterOpenNow) Emerald500 else Ink900, RoundedCornerShape(6.dp))
-                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                    .size(44.dp)
+                    .background(if (filterOpenNow) Emerald500 else Ink900, RoundedCornerShape(8.dp))
+                    .border(1.dp, Ink700, RoundedCornerShape(8.dp))
             ) {
                 Icon(
                     Icons.Default.Schedule,
                     contentDescription = "Open Now",
                     tint = if (filterOpenNow) OnAccentColor else Mist400,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
@@ -1330,15 +1727,15 @@ fun EbtScreen(
             IconButton(
                 onClick = { filterChains = !filterChains },
                 modifier = Modifier
-                    .size(36.dp)
-                    .background(if (filterChains) Beacon500 else Ink900, RoundedCornerShape(6.dp))
-                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                    .size(44.dp)
+                    .background(if (filterChains) Beacon500 else Ink900, RoundedCornerShape(8.dp))
+                    .border(1.dp, Ink700, RoundedCornerShape(8.dp))
             ) {
                 Icon(
                     Icons.Default.Storefront,
                     contentDescription = "Chains only",
                     tint = if (filterChains) OnAccentColor else Mist400,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
 
@@ -1346,15 +1743,15 @@ fun EbtScreen(
             IconButton(
                 onClick = { filterFavorites = !filterFavorites },
                 modifier = Modifier
-                    .size(36.dp)
-                    .background(if (filterFavorites) Beacon500 else Ink900, RoundedCornerShape(6.dp))
-                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                    .size(44.dp)
+                    .background(if (filterFavorites) Beacon500 else Ink900, RoundedCornerShape(8.dp))
+                    .border(1.dp, Ink700, RoundedCornerShape(8.dp))
             ) {
                 Icon(
                     if (filterFavorites) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Favorites",
                     tint = if (filterFavorites) OnAccentColor else Mist400,
-                    modifier = Modifier.size(18.dp)
+                    modifier = Modifier.size(20.dp)
                 )
             }
         }
@@ -1368,7 +1765,7 @@ fun EbtScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "${filteredList.size} participating EBT outlets",
+                text = if (sortByDistance && userLocation != null) "${filteredList.size} participating EBT outlets (nearest first)" else "${filteredList.size} participating EBT outlets",
                 color = Mist400,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Medium
@@ -1378,14 +1775,17 @@ fun EbtScreen(
                     text = "Reset filters",
                     color = Beacon400,
                     fontSize = 12.sp,
-                    modifier = Modifier.clickable {
-                        searchQuery = ""
-                        selectedCuisine = "all"
-                        selectedNeighborhood = "all"
-                        filterFavorites = false
-                        filterChains = false
-                        filterOpenNow = false
-                    }
+                    modifier = Modifier
+                        .defaultMinSize(minHeight = 44.dp)
+                        .clickable {
+                            searchQuery = ""
+                            selectedCuisine = "all"
+                            selectedNeighborhood = "all"
+                            filterFavorites = false
+                            filterChains = false
+                            filterOpenNow = false
+                        }
+                        .padding(horizontal = 8.dp, vertical = 10.dp)
                 )
             }
         }
@@ -1429,6 +1829,7 @@ fun EbtScreen(
                 items(filteredList, key = { it.id }) { loc ->
                     RmpCard(
                         location = loc,
+                        distanceMiles = viewModel.getDistanceToRmp(loc),
                         onFavoriteClick = { viewModel.toggleRmpFavorite(loc) },
                         onNotesSaved = { note -> viewModel.saveRmpPersonalNotes(loc.id, note) }
                     )
@@ -1439,6 +1840,13 @@ fun EbtScreen(
                 Spacer(modifier = Modifier.height(80.dp))
             }
         }
+    }
+
+    if (showLocationDialog) {
+        LocationAnchorDialog(
+            viewModel = viewModel,
+            onDismiss = { showLocationDialog = false }
+        )
     }
 
     // Add Outlet Dialog
@@ -1572,10 +1980,31 @@ fun AddScreen(
     viewModel: CompassViewModel,
     onNavigateToDetail: (Int) -> Unit
 ) {
+    val context = LocalContext.current
     val isParsing by viewModel.isParsing
+    val isProcessingImage by viewModel.isProcessingImage
     val draft = viewModel.draftResource.value
     val parseError by viewModel.parseError
     val isSaving by viewModel.isSavingResource
+    val selectedImageUri by viewModel.selectedImageUri
+    val selectedImageBase64 by viewModel.selectedImageBase64
+
+    val photoPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            viewModel.onPhotoSelected(context, uri)
+        }
+    }
+
+    var viewingImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    if (viewingImageUri != null) {
+        FullScreenImageViewer(
+            imageUri = viewingImageUri!!,
+            onDismiss = { viewingImageUri = null }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -1597,67 +2026,297 @@ fun AddScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        "Paste a street flyer, text message, website listing, or raw notes. The Navigator AI will parse it into a structured resource entry for your review.",
+                        "Ingest street flyers, clinic schedules, or food pantry brochures using your camera or photo library, or paste unstructured text. The Navigator AI extracts structured entries for your verification.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Mist400
                     )
                 }
 
+                // --- Visual Flyer Photo Scanner (Compact) ---
                 item {
-                    OutlinedTextField(
-                        value = viewModel.addRawText.value,
-                        onValueChange = { viewModel.addRawText.value = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp)
-                            .testTag("add_input"),
-                        placeholder = { Text("Paste flyer, message or note here...", color = Mist400) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Beacon500,
-                            unfocusedBorderColor = Ink700,
-                            focusedTextColor = Mist100,
-                            unfocusedTextColor = Mist100
-                        )
-                    )
+                    if (selectedImageUri == null) {
+                        OutlinedButton(
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("scan_flyer_photo_button"),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = Ink900,
+                                contentColor = Mist100
+                            ),
+                            border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f)),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(14.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.PhotoCamera, contentDescription = null, tint = Beacon500, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text("Scan Flyer or Brochure Photo", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
+                    } else {
+                        // Image attached state (compact)
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Ink900),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.6f))
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    AsyncImage(
+                                        model = selectedImageUri,
+                                        contentDescription = "Selected flyer photo",
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Ink700)
+                                            .clickable { viewingImageUri = selectedImageUri },
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Column(
+                                        modifier = Modifier.weight(1f),
+                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Emerald500, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text("Flyer Photo Attached", color = Mist100, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                        }
+                                        Text(
+                                            if (isProcessingImage) "Optimizing image..." else "Ready for AI extraction",
+                                            color = if (isProcessingImage) Beacon500 else Mist400,
+                                            fontSize = 11.sp
+                                        )
+                                    }
+                                    TextButton(
+                                        onClick = { viewModel.clearSelectedPhoto() },
+                                        contentPadding = PaddingValues(4.dp)
+                                    ) {
+                                        Text("Remove", color = Rose500, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
+
+                                Button(
+                                    onClick = { viewModel.parseFlyerPhoto() },
+                                    enabled = !isParsing && !isProcessingImage && !selectedImageBase64.isNullOrBlank(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .testTag("extract_flyer_button"),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(10.dp)
+                                ) {
+                                    if (isParsing) {
+                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = OnAccentColor, strokeWidth = 2.dp)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Extracting with Gemini AI...", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    } else {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Extract from Flyer Photo via AI", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
+                // --- Raw Text / Notes Ingestion Card ---
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Or Paste Text / Flyer Notes",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = Mist200,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            if (viewModel.addRawText.value.isNotBlank()) {
+                                Text(
+                                    "Clear",
+                                    color = Mist400,
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.clickable { viewModel.addRawText.value = "" }
+                                )
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = viewModel.addRawText.value,
+                            onValueChange = { viewModel.addRawText.value = it },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(140.dp)
+                                .testTag("add_input"),
+                            placeholder = {
+                                Text(
+                                    if (selectedImageUri != null)
+                                        "Optional extra notes or context to accompany your photo..."
+                                    else
+                                        "Paste flyer text, SMS notice, website snippet, or clinic hours...",
+                                    color = Mist400,
+                                    fontSize = 13.sp
+                                )
+                            },
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Beacon500,
+                                unfocusedBorderColor = Ink700,
+                                focusedTextColor = Mist100,
+                                unfocusedTextColor = Mist100,
+                                focusedContainerColor = Ink900,
+                                unfocusedContainerColor = Ink900
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    }
+                }
+
+                // --- Action Buttons ---
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick = { viewModel.parseDraft() },
-                            enabled = !isParsing && viewModel.addRawText.value.isNotBlank(),
+                            onClick = {
+                                if (selectedImageUri != null && !selectedImageBase64.isNullOrBlank()) {
+                                    viewModel.parseFlyerPhoto()
+                                } else {
+                                    viewModel.parseDraft()
+                                }
+                            },
+                            enabled = !isParsing && (viewModel.addRawText.value.isNotBlank() || (!selectedImageBase64.isNullOrBlank())),
                             modifier = Modifier.weight(1f).testTag("parse_button"),
-                            colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor)
+                            colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor),
+                            shape = RoundedCornerShape(10.dp)
                         ) {
                             if (isParsing) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp), color = OnAccentColor, strokeWidth = 2.dp)
                             } else {
-                                Text("Parse via AI Guide", fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (selectedImageUri != null) "Parse Photo & Text" else "Parse Text via AI",
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
 
                         Button(
                             onClick = { viewModel.createManualBlankDraft() },
                             modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(containerColor = Ink900, contentColor = Mist100)
+                            colors = ButtonDefaults.buttonColors(containerColor = Ink900, contentColor = Mist100),
+                            shape = RoundedCornerShape(10.dp),
+                            border = BorderStroke(1.dp, Ink700)
                         ) {
                             Text("Manual Blank")
                         }
                     }
                 }
 
-                if (parseError != null) {
-                    item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = Ink900),
-                            border = BorderStroke(1.dp, Rose500)
-                        ) {
-                            Text(parseError!!, color = Rose500, modifier = Modifier.padding(12.dp))
+                // --- Quick Sample Flyers for Testing ---
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Try a Sample Flyer Notice:", color = Mist400, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                AssistChip(
+                                    onClick = {
+                                        viewModel.addRawText.value = """
+                                            St. Anthony Medical Clinic - Open Walk-in Hours
+                                            Address: 150 Golden Gate Ave, San Francisco, CA 94102
+                                            Tenderloin neighborhood. Phone: (415) 241-8320
+                                            Free primary medical care, pediatrics, and asthma care for uninsured SF residents.
+                                            Hours: Monday-Friday 8:00am - 12:00pm, 1:00pm - 4:30pm. Closed weekends.
+                                            Cost: 100% Free. No insurance or ID strictly required for emergency intake.
+                                            Languages: English, Spanish, Cantonese.
+                                            Tips: Line forms at 7:30am on Golden Gate Ave for same-day triage slips.
+                                        """.trimIndent()
+                                    },
+                                    label = { Text("🏥 Clinic Schedule Flyer", color = Mist200, fontSize = 12.sp) },
+                                    colors = AssistChipDefaults.assistChipColors(containerColor = Ink900),
+                                    border = BorderStroke(1.dp, Ink700)
+                                )
+                            }
+                            item {
+                                AssistChip(
+                                    onClick = {
+                                        viewModel.addRawText.value = """
+                                            Mission Community Food Pantry - Weekly Grocery Distribution
+                                            Location: 2929 19th St, San Francisco, CA 94110 (Mission District)
+                                            Fresh produce, pantry staples, and hot soup kits.
+                                            Distribution Days: Tuesdays & Thursdays from 10:00am to 2:00pm, Saturdays 9:00am - 1:00pm.
+                                            Eligibility: All low-income families & individuals welcome. Bring your own reusable bags.
+                                            Cost: Free. Contact: (415) 555-0199.
+                                            Languages: Spanish and English speaking volunteers.
+                                            Tips: Enter through courtyard gate on 19th St.
+                                        """.trimIndent()
+                                    },
+                                    label = { Text("🍎 Food Pantry Flyer", color = Mist200, fontSize = 12.sp) },
+                                    colors = AssistChipDefaults.assistChipColors(containerColor = Ink900),
+                                    border = BorderStroke(1.dp, Ink700)
+                                )
+                            }
+                            item {
+                                AssistChip(
+                                    onClick = {
+                                        viewModel.addRawText.value = """
+                                            Lava Mae SF Mobile Showers & Hygiene Trailer
+                                            Tenderloin stop: 330 Ellis St, San Francisco, CA
+                                            Free 15-minute hot showers, fresh towels, hygiene kits, dental kits, and clean socks.
+                                            Schedule: Wednesdays and Fridays 9:00am to 1:00pm.
+                                            Requirements: Walk-in sign up starting at 8:45am. First come, first served.
+                                            Cost: Free. Phone: (415) 359-2454.
+                                        """.trimIndent()
+                                    },
+                                    label = { Text("🚿 Mobile Hygiene Schedule", color = Mist200, fontSize = 12.sp) },
+                                    colors = AssistChipDefaults.assistChipColors(containerColor = Ink900),
+                                    border = BorderStroke(1.dp, Ink700)
+                                )
+                            }
                         }
                     }
+                }
+
+                if (parseError != null) {
+                    item {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF7F1D1D).copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                                .border(1.dp, Rose500, RoundedCornerShape(8.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("⚠️", fontSize = 16.sp)
+                            Text(parseError!!, color = Mist100, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(40.dp))
                 }
             }
         } else {
@@ -1695,6 +2354,43 @@ fun AddScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = Ink900, contentColor = Rose500)
                         ) {
                             Text("Reset")
+                        }
+                    }
+                }
+
+                if (selectedImageUri != null) {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = Ink900),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.4f))
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(10.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                AsyncImage(
+                                    model = selectedImageUri,
+                                    contentDescription = "Source flyer photo",
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable { viewingImageUri = selectedImageUri },
+                                    contentScale = ContentScale.Crop
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Beacon500, modifier = Modifier.size(14.dp))
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Extracted from Flyer Photo", color = Mist100, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                    }
+                                    Text("Fields pre-filled via Gemini vision model. Edit any corrections below.", color = Mist400, fontSize = 11.sp)
+                                }
+                            }
                         }
                     }
                 }
@@ -1996,53 +2692,105 @@ fun DayScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskRow(task: Task, viewModel: CompassViewModel) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Ink900, RoundedCornerShape(8.dp))
-            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
-            .padding(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        IconButton(onClick = { viewModel.toggleTask(task) }) {
-            Icon(
-                imageVector = if (task.done) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
-                contentDescription = "Toggle task done",
-                tint = if (task.done) Emerald500 else Beacon500
-            )
-        }
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = task.title,
-                fontWeight = FontWeight.Bold,
-                color = if (task.done) Mist400 else Mist100,
-                fontSize = 15.sp,
-                style = MaterialTheme.typography.bodyLarge
-            )
-            if (task.notes.isNotBlank()) {
-                Text(
-                    text = task.notes,
-                    color = Mist400,
-                    fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { dismissValue ->
+            when (dismissValue) {
+                SwipeToDismissBoxValue.EndToStart -> {
+                    viewModel.deleteTask(task)
+                    true
+                }
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    viewModel.toggleTask(task)
+                    false // Return false so it springs back
+                }
+                else -> false
             }
-            // Kind label
-            Spacer(modifier = Modifier.height(4.dp))
+        }
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            val color by animateColorAsState(
+                when (dismissState.targetValue) {
+                    SwipeToDismissBoxValue.EndToStart -> Rose500
+                    SwipeToDismissBoxValue.StartToEnd -> Emerald500
+                    SwipeToDismissBoxValue.Settled -> Color.Transparent
+                }, label = "swipeColor"
+            )
+            val icon = when (direction) {
+                SwipeToDismissBoxValue.EndToStart -> Icons.Default.DeleteOutline
+                SwipeToDismissBoxValue.StartToEnd -> if (task.done) Icons.Default.Undo else Icons.Default.Check
+                else -> Icons.Default.DeleteOutline
+            }
+            val alignment = when (direction) {
+                SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                else -> Alignment.Center
+            }
+
             Box(
                 modifier = Modifier
-                    .background(Ink800, RoundedCornerShape(4.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .fillMaxSize()
+                    .padding(vertical = 4.dp)
+                    .background(color, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 20.dp),
+                contentAlignment = alignment
             ) {
-                Text(task.kind.replaceFirstChar { it.uppercase() }, color = Beacon400, fontSize = 10.sp)
+                if (direction != SwipeToDismissBoxValue.Settled) {
+                    Icon(icon, contentDescription = null, tint = Color.White)
+                }
+            }
+        },
+        content = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Ink900, RoundedCornerShape(8.dp))
+                    .border(1.dp, Ink700, RoundedCornerShape(8.dp))
+                    .padding(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = { viewModel.toggleTask(task) }) {
+                    Icon(
+                        imageVector = if (task.done) Icons.Default.CheckBox else Icons.Default.CheckBoxOutlineBlank,
+                        contentDescription = "Toggle task done",
+                        tint = if (task.done) Emerald500 else Beacon500
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = task.title,
+                        fontWeight = FontWeight.Bold,
+                        color = if (task.done) Mist400 else Mist100,
+                        fontSize = 15.sp,
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                    if (task.notes.isNotBlank()) {
+                        Text(
+                            text = task.notes,
+                            color = Mist400,
+                            fontSize = 12.sp,
+                            modifier = Modifier.padding(top = 2.dp)
+                        )
+                    }
+                    // Kind label
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .background(Ink800, RoundedCornerShape(4.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(task.kind.replaceFirstChar { it.uppercase() }, color = Beacon400, fontSize = 10.sp)
+                    }
+                }
             }
         }
-        IconButton(onClick = { viewModel.deleteTask(task) }) {
-            Icon(Icons.Default.DeleteOutline, contentDescription = "Delete", tint = Rose500)
-        }
-    }
+    )
 }
 
 // --- Info Screen ---
@@ -2095,12 +2843,18 @@ fun InfoScreen() {
                 }
                 IconButton(
                     onClick = {
-                        val intent = Intent(Intent.ACTION_DIAL).apply {
-                            data = Uri.parse("tel:${hl.phone}")
+                        try {
+                            val intent = Intent(Intent.ACTION_DIAL).apply {
+                                data = Uri.parse("tel:${hl.phone}")
+                            }
+                            context.startActivity(intent)
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Cannot open dialer: ${e.localizedMessage ?: "No phone app"}", Toast.LENGTH_SHORT).show()
                         }
-                        context.startActivity(intent)
                     },
-                    modifier = Modifier.background(Ink800, RoundedCornerShape(20.dp))
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(Ink800, RoundedCornerShape(22.dp))
                 ) {
                     Icon(Icons.Default.Phone, contentDescription = "Dial", tint = Beacon500)
                 }
@@ -2229,9 +2983,64 @@ fun SettingsScreen(
     viewModel: CompassViewModel
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val resources by viewModel.allResources.collectAsState()
     val rmpLocations by viewModel.allRmpLocations.collectAsState()
-    
+    val visits by viewModel.allVisits.collectAsState()
+    val tasks by viewModel.allTasks.collectAsState()
+
+    val totalFavs = remember(resources, rmpLocations) {
+        resources.count { it.favorite } + rmpLocations.count { it.favorite }
+    }
+    val totalNotes = remember(resources, rmpLocations) {
+        resources.count { it.personalNotes.isNotBlank() } + rmpLocations.count { it.personalNotes.isNotBlank() }
+    }
+    val totalVisits = remember(visits) { visits.size }
+    val totalTasks = remember(tasks) { tasks.size }
+
+    var showPasteJsonDialog by remember { mutableStateOf(false) }
+    var pastedJsonText by remember { mutableStateOf("") }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val json = viewModel.getExportJson()
+                    context.contentResolver.openOutputStream(uri)?.use { stream ->
+                        stream.write(json.toByteArray(Charsets.UTF_8))
+                    }
+                    viewModel.setExportSuccess("Backup saved successfully! JSON backup file created.")
+                    Toast.makeText(context, "Backup exported successfully!", Toast.LENGTH_LONG).show()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Export failed: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            coroutineScope.launch {
+                try {
+                    val text = context.contentResolver.openInputStream(uri)?.use { stream ->
+                        stream.bufferedReader(Charsets.UTF_8).readText()
+                    }
+                    if (!text.isNullOrBlank()) {
+                        viewModel.loadImportJson(text)
+                    } else {
+                        Toast.makeText(context, "Selected file is empty", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Failed to read file: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
     val hiddenResources = remember(resources) { resources.filter { it.hidden } }
     val hiddenRmp = remember(rmpLocations) { rmpLocations.filter { it.hidden } }
 
@@ -2249,33 +3058,247 @@ fun SettingsScreen(
         "wayfinder" to "Wayfinder"
     )
 
-    LazyColumn(
+    val listState = rememberLazyListState()
+    val showScrollToTop by remember {
+        derivedStateOf { listState.firstVisibleItemIndex > 1 }
+    }
+
+    // Exact index targets in the LazyColumn
+    val targetThemeIndex = 3
+    val targetAccentIndex = 4
+    val targetTextIndex = 5
+    val targetDisplayIndex = 6
+    val targetIconIndex = 7
+    val targetBackupIndex = 8
+    val targetHiddenIndex = 9
+    val targetStatsIndex = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
+        9 + 1 + hiddenResources.size + hiddenRmp.size
+    } else {
+        9
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Ink950)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Top Header
-        item {
-            Column {
-                Text(
-                    "Settings & Customization",
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Beacon500,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "Personalize theme atmosphere, contrast, font scaling, and navigation styles",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Mist400
-                )
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Top Header
+            item {
+                Column {
+                    Text(
+                        "Settings & Customization",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Beacon500,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Personalize theme atmosphere, contrast, font scaling, and navigation styles",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Mist400
+                    )
+                }
             }
-        }
 
-        // Live Interactive Theme Preview Card
-        item {
+            // Quick Settings & Customizations Menu Index Card
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Ink900),
+                    border = BorderStroke(
+                        if (highContrast) 2.dp else 1.dp,
+                        if (highContrast) Beacon500 else Ink700
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("settings_index_card")
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(30.dp)
+                                        .background(Beacon500.copy(alpha = 0.2f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.MenuBook,
+                                        contentDescription = null,
+                                        tint = Beacon500,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        "QUICK SETTINGS INDEX",
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = 12.sp,
+                                        color = Beacon500,
+                                        letterSpacing = 0.8.sp
+                                    )
+                                    Text(
+                                        "Tap any section to jump directly to it",
+                                        fontSize = 11.sp,
+                                        color = Mist400
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .background(Ink800, RoundedCornerShape(12.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 8.dp, vertical = 3.dp)
+                            ) {
+                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 8 else 7
+                                Text(
+                                    "$totalSections Sections",
+                                    color = Mist200,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        val indexEntries = remember(hiddenResources.size, hiddenRmp.size, targetStatsIndex) {
+                            val list = mutableListOf(
+                                Triple("🎨 Themes", "Atmosphere & Tones", targetThemeIndex),
+                                Triple("🌈 Accents", "Highlight Colors", targetAccentIndex),
+                                Triple("🔤 Text Size", "Scaling & Readability", targetTextIndex),
+                                Triple("🔆 Display", "Contrast & Density", targetDisplayIndex),
+                                Triple("📱 App Icon", "Launcher Style", targetIconIndex),
+                                Triple("💾 Backup", "Export & Import JSON", targetBackupIndex)
+                            )
+                            if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
+                                list.add(Triple("👁️ Hidden", "Unhide (${hiddenResources.size + hiddenRmp.size})", targetHiddenIndex))
+                            }
+                            list.add(Triple("📊 Statistics", "Storage & DB Stats", targetStatsIndex))
+                            list
+                        }
+
+                        // 2-Column Responsive Navigation Grid
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (i in indexEntries.indices step 2) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    val item1 = indexEntries[i]
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(Ink800)
+                                            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                coroutineScope.launch {
+                                                    listState.animateScrollToItem(item1.third)
+                                                }
+                                            }
+                                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    item1.first,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.sp,
+                                                    color = Mist100,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                                Text(
+                                                    item1.second,
+                                                    fontSize = 9.5.sp,
+                                                    color = Mist400,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                            Icon(
+                                                Icons.Default.ArrowDownward,
+                                                contentDescription = "Jump to ${item1.first}",
+                                                tint = Beacon500,
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                        }
+                                    }
+
+                                    if (i + 1 < indexEntries.size) {
+                                        val item2 = indexEntries[i + 1]
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Ink800)
+                                                .border(1.dp, Ink700, RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    coroutineScope.launch {
+                                                        listState.animateScrollToItem(item2.third)
+                                                    }
+                                                }
+                                                .padding(horizontal = 10.dp, vertical = 8.dp)
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        item2.first,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 12.sp,
+                                                        color = Mist100,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        item2.second,
+                                                        fontSize = 9.5.sp,
+                                                        color = Mist400,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                }
+                                                Icon(
+                                                    Icons.Default.ArrowDownward,
+                                                    contentDescription = "Jump to ${item2.first}",
+                                                    tint = Beacon500,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Live Interactive Theme Preview Card
+            item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
                 border = BorderStroke(
@@ -2407,12 +3430,37 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Theme Atmosphere",
-                        fontWeight = FontWeight.Bold,
-                        color = Beacon500,
-                        fontSize = 16.sp
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 1", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Theme Atmosphere",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     Text(
                         "Select background tone and street lighting mode",
                         fontSize = 12.sp,
@@ -2499,12 +3547,37 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Compass Accent Color",
-                        fontWeight = FontWeight.Bold,
-                        color = Beacon500,
-                        fontSize = 16.sp
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 2", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Compass Accent Color",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     Text(
                         "Primary color for action buttons, active navigation, and priority badges",
                         fontSize = 12.sp,
@@ -2593,12 +3666,37 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Text Scaling & Readability",
-                        fontWeight = FontWeight.Bold,
-                        color = Beacon500,
-                        fontSize = 16.sp
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 3", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Text Scaling & Readability",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     Text(
                         "Enlarge text for walking outdoors, direct sunlight, or easier scanning",
                         fontSize = 12.sp,
@@ -2669,12 +3767,37 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text(
-                        "Street Display Configuration",
-                        fontWeight = FontWeight.Bold,
-                        color = Beacon500,
-                        fontSize = 16.sp
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 4", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Street Display Configuration",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     Text(
                         "Fine-tune accessibility and layout density",
                         fontSize = 12.sp,
@@ -2770,7 +3893,32 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Launcher Identity Style", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 5", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text("Launcher Identity Style", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     Text("Switch launcher shortcut theme & branding badge", fontSize = 12.sp, color = Mist400)
                     Spacer(modifier = Modifier.height(10.dp))
                     
@@ -2801,10 +3949,366 @@ fun SettingsScreen(
             }
         }
 
-        // Section 6: Hidden Resources Manager
+        // Section 6: Data Portability & Backup (Export & Import)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("SECTION 6", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                }
+                                Text(
+                                    "Data Portability & Backup",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Beacon500,
+                                    fontSize = 16.sp
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .background(Ink800, RoundedCornerShape(12.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("Offline JSON", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Download or restore your saved favorites, private notes, visit history, and checklist tasks so personal data is never lost.",
+                                fontSize = 12.sp,
+                                color = Mist400
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Current Personal Data Inventory Summary Pills
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            "YOUR PERSONAL RECORDS READY TO BACK UP",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Mist400,
+                            letterSpacing = 0.8.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Favorites Pill
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Ink900, RoundedCornerShape(6.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$totalFavs", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Beacon400)
+                                    Text("Favorites", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                            // Notes Pill
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Ink900, RoundedCornerShape(6.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$totalNotes", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Beacon400)
+                                    Text("Notes", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                            // Visits Pill
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Ink900, RoundedCornerShape(6.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$totalVisits", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Beacon400)
+                                    Text("Visits", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                            // Tasks Pill
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Ink900, RoundedCornerShape(6.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                    .padding(vertical = 8.dp, horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("$totalTasks", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Beacon400)
+                                    Text("Tasks", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Action Buttons Row 1: Export Data (Download) & Share
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                val timeStamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
+                                exportLauncher.launch("compass_sf_backup_$timeStamp.json")
+                            },
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .heightIn(min = 48.dp)
+                                .testTag("export_data_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+                        ) {
+                            Icon(Icons.Filled.Download, contentDescription = "Export Data", modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Export (Download JSON)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    try {
+                                        val json = viewModel.getExportJson()
+                                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_SUBJECT, "Compass SF Backup JSON")
+                                            putExtra(Intent.EXTRA_TEXT, json)
+                                        }
+                                        context.startActivity(Intent.createChooser(sendIntent, "Share Backup JSON"))
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Failed to share: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(0.9f)
+                                .heightIn(min = 48.dp)
+                                .testTag("share_backup_button"),
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                        ) {
+                            Icon(Icons.Filled.Share, contentDescription = "Share Backup", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Share", fontSize = 12.sp)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Action Buttons Row 2: Import Data (Upload) & Paste JSON
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        FilledTonalButton(
+                            onClick = {
+                                importLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
+                            },
+                            modifier = Modifier
+                                .weight(1.3f)
+                                .heightIn(min = 48.dp)
+                                .testTag("import_data_button"),
+                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = Ink800, contentColor = Mist100),
+                            border = BorderStroke(1.dp, Ink700),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
+                        ) {
+                            Icon(Icons.Filled.Upload, contentDescription = "Import Data", modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Import (Upload JSON)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                pastedJsonText = ""
+                                showPasteJsonDialog = true
+                            },
+                            modifier = Modifier
+                                .weight(0.9f)
+                                .heightIn(min = 48.dp)
+                                .testTag("paste_json_button"),
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
+                        ) {
+                            Icon(Icons.Filled.ContentPaste, contentDescription = "Paste JSON", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Paste Text", fontSize = 12.sp)
+                        }
+                    }
+
+                    // Export Success Banner
+                    viewModel.exportSuccessMessage.value?.let { successMsg ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Emerald500.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                .border(1.dp, Emerald500.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("✅", fontSize = 16.sp)
+                                Text(successMsg, color = Mist100, fontSize = 12.sp)
+                            }
+                            IconButton(
+                                onClick = { viewModel.dismissExportSuccess() },
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Mist400, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+
+                    // Import Success Banner
+                    viewModel.lastImportResult.value?.let { result ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Emerald500.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                .border(1.dp, Emerald500.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("🎉", fontSize = 16.sp)
+                                    Text("Backup Restored Successfully!", fontWeight = FontWeight.Bold, color = Emerald500, fontSize = 13.sp)
+                                }
+                                IconButton(
+                                    onClick = { viewModel.dismissLastImportResult() },
+                                    modifier = Modifier.size(44.dp)
+                                ) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Mist400, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text("• Favorites updated: ${result.favoritesUpdated}", fontSize = 12.sp, color = Mist200)
+                            Text("• Private notes merged: ${result.notesUpdated}", fontSize = 12.sp, color = Mist200)
+                            Text("• Visit history logs added: ${result.visitsRestored}", fontSize = 12.sp, color = Mist200)
+                            Text("• Checklist tasks added: ${result.tasksRestored}", fontSize = 12.sp, color = Mist200)
+                            if (result.customPlacesRestored > 0) {
+                                Text("• Custom community places added: ${result.customPlacesRestored}", fontSize = 12.sp, color = Mist200)
+                            }
+                        }
+                    }
+
+                    // Import Error Banner
+                    viewModel.importErrorMessage.value?.let { errMsg ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF7F1D1D).copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(8.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("⚠️", fontSize = 16.sp)
+                                Text(errMsg, color = Mist100, fontSize = 12.sp)
+                            }
+                            IconButton(
+                                onClick = { viewModel.dismissImportDialog() },
+                                modifier = Modifier.size(44.dp)
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Mist400, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 7: Hidden Resources Manager
         if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
             item {
-                Text("Hidden Resources Manager", color = Beacon500, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text("SECTION 7", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                        }
+                        Text("Hidden Resources Manager", color = Beacon500, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                    TextButton(
+                        onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                    ) {
+                        Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
             }
 
             items(hiddenResources) { res ->
@@ -2848,7 +4352,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 7: App Statistics & Data Storage Status
+        // Section 8: App Statistics & Data Storage Status
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -2856,7 +4360,33 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("Offline Guide Statistics & Storage", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 14.sp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                val secNum = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) "SECTION 8" else "SECTION 7"
+                                Text(secNum, color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text("Offline Guide Statistics & Storage", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 14.sp)
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text("Total Directory Resources: ${resources.size}", color = Mist100, fontSize = 12.sp)
                     Text("• SF Service Guide (ShelterTech): ${resources.filter { it.source.contains("ShelterTech", ignoreCase = true) }.size}", color = Mist100, fontSize = 12.sp)
@@ -2872,6 +4402,192 @@ fun SettingsScreen(
         item {
             Spacer(modifier = Modifier.height(100.dp))
         }
+    }
+
+    AnimatedVisibility(
+        visible = showScrollToTop,
+        enter = fadeIn() + slideInVertically { it / 2 },
+        exit = fadeOut() + slideOutVertically { it / 2 },
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(end = 16.dp, bottom = 90.dp)
+    ) {
+        FloatingActionButton(
+            onClick = {
+                coroutineScope.launch {
+                    listState.animateScrollToItem(0)
+                }
+            },
+            containerColor = Beacon500,
+            contentColor = Ink950,
+            modifier = Modifier
+                .size(48.dp)
+                .testTag("scroll_to_top_button")
+        ) {
+            Icon(
+                Icons.Default.KeyboardArrowUp,
+                contentDescription = "Scroll to top index",
+                modifier = Modifier.size(26.dp)
+            )
+        }
+    }
+}
+
+    // --- Import Confirmation Dialog ---
+    val importPreview = viewModel.importPreviewState.value
+    if (importPreview != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissImportDialog() },
+            containerColor = Ink900,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("📥", fontSize = 20.sp)
+                    Text("Restore Backup Data", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Found records from backup created on ${importPreview.exportedDate}:",
+                        fontSize = 13.sp,
+                        color = Mist200
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink800, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Saved Favorites:", fontSize = 12.sp, color = Mist400)
+                            Text("${importPreview.favoriteCount} items", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Private User Notes:", fontSize = 12.sp, color = Mist400)
+                            Text("${importPreview.notesCount} notes", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Visit History Logs:", fontSize = 12.sp, color = Mist400)
+                            Text("${importPreview.visitCount} visits", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                        }
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Checklist Tasks:", fontSize = 12.sp, color = Mist400)
+                            Text("${importPreview.taskCount} tasks", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                        }
+                        if (importPreview.customPlacesCount > 0) {
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("Custom Places:", fontSize = 12.sp, color = Mist400)
+                                Text("${importPreview.customPlacesCount} places", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                            }
+                        }
+                    }
+
+                    Text(
+                        "Safe Merge: Restoring will merge your personal bookmarks, notes, visit records, and tasks without removing existing directory entries.",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.confirmRestore { result ->
+                            Toast.makeText(context, "Restored ${result.favoritesUpdated} favorites, ${result.notesUpdated} notes, ${result.visitsRestored} visits, ${result.tasksRestored} tasks", Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
+                    modifier = Modifier.testTag("confirm_restore_button"),
+                    enabled = !viewModel.isImporting.value
+                ) {
+                    if (viewModel.isImporting.value) {
+                        CircularProgressIndicator(color = Ink950, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Restoring...", fontSize = 13.sp)
+                    } else {
+                        Text("Restore & Merge", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    }
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { viewModel.dismissImportDialog() },
+                    border = BorderStroke(1.dp, Ink700),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200),
+                    modifier = Modifier.testTag("cancel_restore_button")
+                ) {
+                    Text("Cancel", fontSize = 13.sp)
+                }
+            }
+        )
+    }
+
+    // --- Paste JSON Text Dialog ---
+    if (showPasteJsonDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasteJsonDialog = false },
+            containerColor = Ink900,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Filled.ContentPaste, contentDescription = null, tint = Beacon500)
+                    Text("Paste JSON Backup", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Paste the raw backup JSON text below (convenient if copied from an email, clipboard, or note):",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    OutlinedTextField(
+                        value = pastedJsonText,
+                        onValueChange = { pastedJsonText = it },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        placeholder = { Text("{\"metadata\": {...}, ...}", color = Mist400, fontSize = 12.sp) },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = Ink800,
+                            unfocusedContainerColor = Ink800,
+                            focusedBorderColor = Beacon500,
+                            unfocusedBorderColor = Ink700,
+                            focusedTextColor = Mist100,
+                            unfocusedTextColor = Mist100
+                        ),
+                        maxLines = 10
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pastedJsonText.isNotBlank()) {
+                            showPasteJsonDialog = false
+                            viewModel.loadImportJson(pastedJsonText)
+                        } else {
+                            Toast.makeText(context, "Please paste JSON text first", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
+                    enabled = pastedJsonText.isNotBlank()
+                ) {
+                    Text("Inspect & Restore", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showPasteJsonDialog = false },
+                    border = BorderStroke(1.dp, Ink700),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200)
+                ) {
+                    Text("Cancel", fontSize = 13.sp)
+                }
+            }
+        )
     }
 }
 
@@ -2972,32 +4688,85 @@ fun DetailScreen(
                 border = BorderStroke(1.dp, Ink700),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("📍 Address: ${res.address}", color = Mist100)
                     if (res.neighborhood.isNotBlank()) {
                         Text("🏢 Neighborhood: ${res.neighborhood}", color = Mist100)
                     }
-                    if (res.phone.isNotBlank()) {
-                        Text("📞 Phone: ${res.phone}", color = Beacon400, modifier = Modifier.clickable {
-                            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${res.phone}"))
-                            context.startActivity(intent)
-                        })
-                    }
                     if (res.hoursText.isNotBlank()) {
                         Text("⏰ Hours: ${res.hoursText}", color = Mist100)
                     }
-                    if (res.website.isNotBlank()) {
-                        Text("🌐 Website: ${res.website}", color = Beacon400, modifier = Modifier.clickable {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(res.website))
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show()
-                            }
-                        })
-                    }
                     if (res.source.isNotBlank()) {
                         Text("📋 Online Source: ${res.source}", color = Color(0xFF38BDF8), fontSize = 12.sp)
+                    }
+
+                    // Direct 48dp action buttons for Directions, Phone, and Website
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (res.address.isNotBlank()) {
+                            Button(
+                                onClick = {
+                                    val geoUri = Uri.parse("geo:0,0?q=${Uri.encode("${res.name}, ${res.address}, San Francisco, CA")}")
+                                    val mapIntent = Intent(Intent.ACTION_VIEW, geoUri)
+                                    try {
+                                        context.startActivity(mapIntent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "No map application found: ${e.localizedMessage ?: "Cannot open map"}", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Directions, contentDescription = "Directions", modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Directions", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        if (res.phone.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    val dialIntent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:${res.phone}"))
+                                    try {
+                                        context.startActivity(dialIntent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Cannot open phone dialer: ${e.localizedMessage ?: "No dialer installed"}", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                border = BorderStroke(1.dp, Ink700),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Phone, contentDescription = "Call", tint = Beacon400, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Call", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+
+                        if (res.website.isNotBlank()) {
+                            OutlinedButton(
+                                onClick = {
+                                    try {
+                                        val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse(res.website))
+                                        context.startActivity(webIntent)
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "Could not open web link: ${e.localizedMessage ?: "No browser app"}", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                border = BorderStroke(1.dp, Ink700),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Language, contentDescription = "Website", tint = Beacon400, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Website", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
             }
@@ -3209,6 +4978,7 @@ fun DetailScreen(
 @Composable
 fun ResourceCard(
     resource: Resource,
+    distanceMiles: Double? = null,
     onCardClick: () -> Unit,
     onFavoriteClick: () -> Unit
 ) {
@@ -3241,12 +5011,15 @@ fun ResourceCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = onFavoriteClick, modifier = Modifier.size(24.dp)) {
+                IconButton(
+                    onClick = onFavoriteClick,
+                    modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                ) {
                     Icon(
                         imageVector = if (resource.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Favorite",
                         tint = if (resource.favorite) Rose500 else Mist400,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -3268,13 +5041,31 @@ fun ResourceCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Box(
                         modifier = Modifier
                             .background(Ink800, RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(resource.category.replaceFirstChar { it.uppercase() }, color = Beacon400, fontSize = 10.sp)
+                    }
+                    if (distanceMiles != null) {
+                        Box(
+                            modifier = Modifier
+                                .background(Ink800, RoundedCornerShape(4.dp))
+                                .border(0.5.dp, Beacon500.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "🚶 ${LocationHelper.formatDistance(distanceMiles)}",
+                                color = Beacon400,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                     if (resource.neighborhood.isNotBlank()) {
                         Box(
@@ -3317,6 +5108,7 @@ fun ResourceCard(
 @Composable
 fun RmpCard(
     location: RmpLocation,
+    distanceMiles: Double? = null,
     onFavoriteClick: () -> Unit,
     onNotesSaved: (String) -> Unit
 ) {
@@ -3356,12 +5148,15 @@ fun RmpCard(
                     }
                     Text(locSub, color = Mist400, fontSize = 12.sp)
                 }
-                IconButton(onClick = onFavoriteClick, modifier = Modifier.size(28.dp)) {
+                IconButton(
+                    onClick = onFavoriteClick,
+                    modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                ) {
                     Icon(
                         imageVector = if (location.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                         contentDescription = "Favorite",
                         tint = if (location.favorite) Rose500 else Mist400,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }
@@ -3388,6 +5183,21 @@ fun RmpCard(
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp
                         )
+                    }
+                    if (distanceMiles != null) {
+                        Box(
+                            modifier = Modifier
+                                .background(Ink800, RoundedCornerShape(4.dp))
+                                .border(0.5.dp, Beacon500.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "🚶 ${LocationHelper.formatDistance(distanceMiles)}",
+                                color = Beacon400,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                     if (location.chain) {
                         Box(
@@ -3546,6 +5356,56 @@ fun RmpCard(
                         )
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun FullScreenImageViewer(imageUri: Uri, onDismiss: () -> Unit) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            dismissOnBackPress = true,
+            dismissOnClickOutside = true
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.95f))
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        scale = (scale * zoom).coerceIn(1f, 5f)
+                        offset = if (scale > 1f) offset + pan else Offset.Zero
+                    }
+                }
+        ) {
+            AsyncImage(
+                model = imageUri,
+                contentDescription = "Full screen image view",
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        translationX = offset.x,
+                        translationY = offset.y
+                    ),
+                contentScale = ContentScale.Fit
+            )
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+                    .background(Color.Black.copy(alpha = 0.5f), CircleShape)
+            ) {
+                Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
             }
         }
     }

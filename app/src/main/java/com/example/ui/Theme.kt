@@ -240,6 +240,7 @@ val Ink900: Color @Composable get() = LocalCompassTheme.current.surface
 val Ink800: Color @Composable get() = LocalCompassTheme.current.surfaceVariant
 val Ink700: Color @Composable get() = LocalCompassTheme.current.border
 val Mist400: Color @Composable get() = LocalCompassTheme.current.textSecondary
+val Mist200: Color @Composable get() = LocalCompassTheme.current.textPrimary.copy(alpha = 0.85f)
 val Mist100: Color @Composable get() = LocalCompassTheme.current.textPrimary
 val Beacon500: Color @Composable get() = LocalCompassTheme.current.accent
 val Beacon400: Color @Composable get() = LocalCompassTheme.current.accentLight

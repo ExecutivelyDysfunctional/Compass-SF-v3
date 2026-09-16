@@ -1,6 +1,11 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
@@ -9,11 +14,14 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
 
 sealed class Screen(
     val route: String,
@@ -37,6 +45,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     
     val allResources: StateFlow<List<Resource>>
     val allTasks: StateFlow<List<Task>>
+    val allVisits: StateFlow<List<Visit>>
     val allPlans: StateFlow<List<Plan>>
     val allRmpLocations: StateFlow<List<RmpLocation>>
     val allCaptures: StateFlow<List<Capture>>
@@ -48,6 +57,10 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val draftResource = mutableStateOf<ResourceDraft?>(null)
     val isSavingResource = mutableStateOf(false)
     val personalNotes = mutableStateOf("")
+    val selectedImageUri = mutableStateOf<Uri?>(null)
+    val selectedImageBase64 = mutableStateOf<String?>(null)
+    val selectedImageName = mutableStateOf<String?>(null)
+    val isProcessingImage = mutableStateOf(false)
 
     // --- Ask Screen UI State ---
     val askQuestion = mutableStateOf("")
@@ -65,6 +78,14 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val highContrastEnabled = mutableStateOf(false)
     val compactListingEnabled = mutableStateOf(false)
 
+    // --- Location & Distance Sorting UI State ---
+    val userLocation = mutableStateOf<UserLocation?>(null)
+    val isLocating = mutableStateOf(false)
+    val locationStatusMessage = mutableStateOf<String?>(null)
+    val sortByDistance = mutableStateOf(false)
+    val selectedNeighborhoodAnchorId = mutableStateOf<String?>(null)
+    val locationPermissionDenied = mutableStateOf(false)
+
     init {
         val database = AppDatabase.getDatabase(application)
         repository = CompassRepository(database.resourceDao())
@@ -73,6 +94,9 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         allTasks = repository.allTasksFlow
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        allVisits = repository.allVisitsFlow
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
         allPlans = repository.allPlansFlow
@@ -105,7 +129,97 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             repository.getSetting("compact_listing")?.let {
                 compactListingEnabled.value = it.toBooleanStrictOrNull() ?: false
             }
+
+            val locType = repository.getSetting("location_type") ?: "none"
+            val savedAnchorId = repository.getSetting("selected_anchor_id")
+            if (locType == "anchor" && !savedAnchorId.isNullOrBlank()) {
+                val anchor = LocationHelper.NEIGHBORHOOD_ANCHORS.find { it.id == savedAnchorId }
+                if (anchor != null) {
+                    userLocation.value = UserLocation(
+                        latitude = anchor.latitude,
+                        longitude = anchor.longitude,
+                        label = anchor.name,
+                        isManualAnchor = true
+                    )
+                    selectedNeighborhoodAnchorId.value = anchor.id
+                    sortByDistance.value = true
+                }
+            }
         }
+    }
+
+    fun requestDeviceLocation(context: android.content.Context) {
+        isLocating.value = true
+        locationStatusMessage.value = "Locating via GPS..."
+        locationPermissionDenied.value = false
+        LocationHelper.requestFreshLocation(context) { location ->
+            isLocating.value = false
+            if (location != null) {
+                userLocation.value = UserLocation(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    label = "Current Location",
+                    isManualAnchor = false,
+                    accuracyMeters = if (location.hasAccuracy()) location.accuracy else null
+                )
+                selectedNeighborhoodAnchorId.value = null
+                locationStatusMessage.value = "Using GPS location"
+                sortByDistance.value = true
+                viewModelScope.launch {
+                    repository.saveSetting("location_type", "gps")
+                }
+            } else {
+                locationStatusMessage.value = "Could not get current GPS fix. Select a neighborhood anchor."
+            }
+        }
+    }
+
+    fun setNeighborhoodAnchor(anchor: NeighborhoodAnchor) {
+        userLocation.value = UserLocation(
+            latitude = anchor.latitude,
+            longitude = anchor.longitude,
+            label = anchor.name,
+            isManualAnchor = true
+        )
+        selectedNeighborhoodAnchorId.value = anchor.id
+        locationStatusMessage.value = "Anchored at ${anchor.name}"
+        sortByDistance.value = true
+        viewModelScope.launch {
+            repository.saveSetting("location_type", "anchor")
+            repository.saveSetting("selected_anchor_id", anchor.id)
+        }
+    }
+
+    fun clearLocation() {
+        userLocation.value = null
+        selectedNeighborhoodAnchorId.value = null
+        locationStatusMessage.value = null
+        sortByDistance.value = false
+        viewModelScope.launch {
+            repository.saveSetting("location_type", "none")
+            repository.saveSetting("selected_anchor_id", "")
+        }
+    }
+
+    fun toggleSortByDistance(explicit: Boolean? = null) {
+        val next = explicit ?: !sortByDistance.value
+        sortByDistance.value = next
+        if (next && userLocation.value == null) {
+            val defaultAnchor = LocationHelper.NEIGHBORHOOD_ANCHORS.first()
+            setNeighborhoodAnchor(defaultAnchor)
+        }
+    }
+
+    fun getDistanceToResource(resource: Resource): Double? {
+        val loc = userLocation.value ?: return null
+        val coords = LocationHelper.getCoordinates(resource) ?: return null
+        return LocationHelper.calculateDistanceMiles(loc.latitude, loc.longitude, coords.first, coords.second)
+    }
+
+    fun getDistanceToRmp(rmp: RmpLocation): Double? {
+        val loc = userLocation.value ?: return null
+        val coords = LocationHelper.getCoordinates(rmp) ?: return null
+        return LocationHelper.calculateDistanceMiles(loc.latitude, loc.longitude, coords.first, coords.second)
     }
 
     // --- Actions ---
@@ -231,6 +345,77 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
     // --- AI Integration Methods ---
 
+    fun onPhotoSelected(context: Context, uri: Uri) {
+        viewModelScope.launch(Dispatchers.IO) {
+            isProcessingImage.value = true
+            try {
+                selectedImageUri.value = uri
+                selectedImageName.value = "Street Flyer Photo"
+                val inputStream: InputStream? = context.contentResolver.openInputStream(uri)
+                val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
+
+                if (originalBitmap != null) {
+                    val maxDim = 1200
+                    val width = originalBitmap.width
+                    val height = originalBitmap.height
+                    val scaledBitmap = if (width > maxDim || height > maxDim) {
+                        val ratio = width.toFloat() / height.toFloat()
+                        val newW = if (width > height) maxDim else (maxDim * ratio).toInt()
+                        val newH = if (height > width) maxDim else (maxDim / ratio).toInt()
+                        Bitmap.createScaledBitmap(originalBitmap, newW.coerceAtLeast(1), newH.coerceAtLeast(1), true)
+                    } else {
+                        originalBitmap
+                    }
+
+                    val outputStream = ByteArrayOutputStream()
+                    scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+                    val bytes = outputStream.toByteArray()
+                    val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                    selectedImageBase64.value = base64
+                }
+            } catch (e: Exception) {
+                parseError.value = "Failed to load flyer photo: ${e.message}"
+            } finally {
+                isProcessingImage.value = false
+            }
+        }
+    }
+
+    fun clearSelectedPhoto() {
+        selectedImageUri.value = null
+        selectedImageBase64.value = null
+        selectedImageName.value = null
+    }
+
+    fun parseFlyerPhoto() {
+        val base64 = selectedImageBase64.value
+        if (base64.isNullOrBlank()) {
+            parseError.value = "Please select or take a flyer photo first."
+            return
+        }
+        isParsing.value = true
+        parseError.value = null
+        viewModelScope.launch {
+            try {
+                val result = AiService.parseFlyerImage(
+                    base64Image = base64,
+                    mimeType = "image/jpeg",
+                    notes = addRawText.value
+                )
+                if (result != null) {
+                    draftResource.value = result
+                } else {
+                    parseError.value = "Unable to read structure from flyer photo. You can still fill out the manual entry below."
+                }
+            } catch (e: Exception) {
+                parseError.value = e.message ?: "Failed to contact parser service"
+            } finally {
+                isParsing.value = false
+            }
+        }
+    }
+
     fun parseDraft() {
         if (addRawText.value.isBlank()) return
         isParsing.value = true
@@ -241,7 +426,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                 if (result != null) {
                     draftResource.value = result
                 } else {
-                    parseError.value = "Unable to read structure from that text. Try manually entry."
+                    parseError.value = "Unable to read structure from that text. Try manual entry."
                 }
             } catch (e: Exception) {
                 parseError.value = e.message ?: "Failed to contact parser service"
@@ -256,6 +441,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         addRawText.value = ""
         parseError.value = null
         personalNotes.value = ""
+        clearSelectedPhoto()
     }
 
     fun createManualBlankDraft() {
@@ -391,5 +577,68 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
     fun getVisitsFlow(resourceId: Int): Flow<List<Visit>> {
         return repository.getVisitsForResource(resourceId)
+    }
+
+    // --- Data Portability: Backup & Restore UI State & Methods ---
+    val importPreviewState = mutableStateOf<ImportPreview?>(null)
+    val importErrorMessage = mutableStateOf<String?>(null)
+    val isImporting = mutableStateOf(false)
+    val lastImportResult = mutableStateOf<ImportResult?>(null)
+    val exportSuccessMessage = mutableStateOf<String?>(null)
+    val isExporting = mutableStateOf(false)
+
+    suspend fun getExportJson(): String {
+        isExporting.value = true
+        return try {
+            val backup = repository.createBackupData()
+            repository.serializeBackup(backup)
+        } finally {
+            isExporting.value = false
+        }
+    }
+
+    fun setExportSuccess(msg: String) {
+        exportSuccessMessage.value = msg
+    }
+
+    fun dismissExportSuccess() {
+        exportSuccessMessage.value = null
+    }
+
+    fun loadImportJson(jsonText: String) {
+        importErrorMessage.value = null
+        try {
+            val preview = repository.parseBackupJson(jsonText)
+            importPreviewState.value = preview
+        } catch (e: Exception) {
+            importErrorMessage.value = "Failed to parse backup JSON: ${e.localizedMessage ?: "Invalid or incompatible format"}"
+            importPreviewState.value = null
+        }
+    }
+
+    fun confirmRestore(onSuccess: (ImportResult) -> Unit) {
+        val preview = importPreviewState.value ?: return
+        isImporting.value = true
+        viewModelScope.launch {
+            try {
+                val result = repository.restoreBackup(preview.rawBackup)
+                lastImportResult.value = result
+                importPreviewState.value = null
+                onSuccess(result)
+            } catch (e: Exception) {
+                importErrorMessage.value = "Restore failed: ${e.localizedMessage ?: "Unknown error"}"
+            } finally {
+                isImporting.value = false
+            }
+        }
+    }
+
+    fun dismissImportDialog() {
+        importPreviewState.value = null
+        importErrorMessage.value = null
+    }
+
+    fun dismissLastImportResult() {
+        lastImportResult.value = null
     }
 }
