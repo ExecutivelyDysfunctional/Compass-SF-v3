@@ -112,8 +112,7 @@ object AiService {
      */
     suspend fun parseMessyText(rawText: String): ResourceDraft? = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey.startsWith("AQ.")) {
-            // Wait, if it's the default placeholder key or empty, let's run the offline parser as fallback
+        if (apiKey.isBlank()) {
             return@withContext runOfflineParser(rawText)
         }
 
@@ -213,7 +212,7 @@ object AiService {
         notes: String = ""
     ): ResourceDraft? = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey.startsWith("AQ.")) {
+        if (apiKey.isBlank()) {
             return@withContext runOfflineImageParser(notes)
         }
 
@@ -347,7 +346,7 @@ object AiService {
         openNowFilter: Boolean
     ): AskResponse = withContext(Dispatchers.IO) {
         val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isEmpty() || apiKey.startsWith("AQ.")) {
+        if (apiKey.isBlank()) {
             return@withContext runOfflineAsk(question, resources)
         }
 

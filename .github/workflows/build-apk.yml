@@ -3,18 +3,32 @@ name: Build APK
 on:
   push:
     branches:
-      - '**'
+      - main
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      diagnostics:
+        description: 'Diagnostics log level'
+        required: false
+        default: 'normal'
+        type: choice
+        options:
+          - normal
+          - verbose
+          - debug
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build Android APK
-    # Trigger when the commit message contains [Build-apk] (case-tolerant) or when manually triggered
-    if: >
-      contains(github.event.head_commit.message, '[Build-apk]') ||
-      contains(github.event.head_commit.message, '[build-apk]') ||
-      contains(github.event.head_commit.message, '[BUILD-APK]') ||
-      github.event_name == 'workflow_dispatch'
+    name: Build Android Debug APK
     runs-on: ubuntu-latest
 
     steps:
@@ -32,18 +46,20 @@ jobs:
 
       - name: Accept Android SDK licenses and install components
         run: |
-          yes | sdkmanager --licenses || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+          set -euo pipefail
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Ensure debug keystore exists
         run: |
+          set -euo pipefail
           if [ ! -f debug.keystore ]; then
             if [ -f debug.keystore.base64 ]; then
               echo "Decoding debug.keystore from base64"
-              base64 -d -i debug.keystore.base64 > debug.keystore || base64 --decode debug.keystore.base64 > debug.keystore || true
+              (base64 -d -i debug.keystore.base64 > debug.keystore 2>/dev/null) || (base64 --decode debug.keystore.base64 > debug.keystore 2>/dev/null) || true
             fi
           fi
           if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
@@ -51,15 +67,73 @@ jobs:
             keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-      - name: Grant execute permission for gradlew
+      - name: Make gradlew executable
         run: chmod +x gradlew
 
+      - name: Determine Gradle diagnostics flags
+        id: diagnostics-flags
+        run: |
+          MODE="${{ inputs.diagnostics || 'normal' }}"
+          case "$MODE" in
+            debug)
+              echo "flags=--debug --stacktrace" >> "$GITHUB_OUTPUT"
+              ;;
+            verbose)
+              echo "flags=--info --stacktrace" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "flags=--stacktrace" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          set -euo pipefail
+          ./gradlew assembleDebug --no-daemon --console=plain ${{ steps.diagnostics-flags.outputs.flags }} 2>&1 | tee build.log
+
+      - name: Verify APK output
+        run: |
+          set -euo pipefail
+          if compgen -G "app/build/outputs/apk/debug/*.apk" > /dev/null; then
+            echo "Debug APK successfully generated:"
+            ls -la app/build/outputs/apk/debug/*.apk
+          else
+            echo "Error: Expected APK artifact not found in app/build/outputs/apk/debug/" >&2
+            exit 1
+          fi
 
       - name: Upload APK Artifact
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Compass-SF-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
           retention-days: 30
+
+      - name: Collect build failure diagnostics
+        if: failure()
+        run: |
+          mkdir -p diagnostics
+          echo "=== Java Version ===" > diagnostics/environment.txt
+          java -version 2>&1 >> diagnostics/environment.txt || true
+          echo -e "\n=== Gradle Version ===" >> diagnostics/environment.txt
+          ./gradlew --version 2>&1 >> diagnostics/environment.txt || true
+          echo -e "\n=== Build Outputs Directory ===" >> diagnostics/environment.txt
+          ls -laR app/build/outputs/ 2>&1 >> diagnostics/environment.txt || true
+          if [ -f build.log ]; then
+            cp build.log diagnostics/
+          fi
+          if [ -d app/build/reports ]; then
+            cp -r app/build/reports diagnostics/
+          fi
+
+      - name: Upload Diagnostics on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-failure-diagnostics
+          path: diagnostics/
+          retention-days: 7

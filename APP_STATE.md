@@ -6,6 +6,12 @@
 ---
 
 ## [Implemented]
+- **CI/CD Canonical Workflow & Credential Hardening**:
+  - Consolidated all workflow files into a single, clean `.github/workflows/build-apk.yml`.
+  - Removed old deprecated workflow variants (`build-apk-balanced-hybrid_Version5.yml`, `build-apk-fast-resilient_Version5.yml`, `build-apk-high-feedback_Version5.yml`).
+  - Configured automated triggers on `push` and `pull_request` to `main`, plus `workflow_dispatch` with manual `diagnostics` input (normal, verbose, debug).
+  - Configured least-privilege `contents: read` permissions and concurrency run cancellation.
+  - Hardened credential security: removed hardcoded fallback API keys in `app/build.gradle.kts` and `AiService.kt`, strictly sourcing `GEMINI_API_KEY` from environment / GitHub repository secrets with graceful offline fallback.
 - **Settings & Modularity (Chunk 3)**: Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+), mobility/wheelchair accessibility priority toggle, and dietary filter presets (Halal, Vegetarian, Kosher). All fully wired into Find, EBT, Now, and Map screens.
 - **Now Screen (Today's Navigator Dashboard)**:
   - Time-of-day greeting ("Good morning", "Good afternoon", "Good evening, traveler") with subtitle.
@@ -114,6 +120,8 @@
 ---
 
 ## [Files]
+- `README.md` - Repository overview and GitHub Actions GEMINI_API_KEY secret configuration guide
+- `.github/workflows/build-apk.yml` - Canonical GitHub Actions Android debug build workflow with diagnostics, caching, and artifact uploads
 - `APP_STATE.md` - Central application state registry and roadmap
 - `metadata.json` - Platform metadata and app identity
 - `app/build.gradle.kts` - Gradle module configuration and dependencies

@@ -18,7 +18,7 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val geminiKey = System.getenv("GEMINI_API_KEY") ?: "AQ.Ab8RN6Iloc5h10t_AFWPYPOQObr1MicnvM_qYA95xKbbxCfwmQ"
+        val geminiKey = System.getenv("GEMINI_API_KEY") ?: ""
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 
