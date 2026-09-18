@@ -8,6 +8,7 @@
 ## [Implemented]
 - **CI/CD Canonical Workflow & Credential Hardening**:
   - Consolidated all workflow files into a single, clean `.github/workflows/build-apk.yml`.
+  - Resolved `sdkmanager` failure by explicitly configuring modern, non-obsolete SDK packages (`platform-tools`, `platforms;android-36`, `build-tools;36.0.0`) in `android-actions/setup-android@v3` and preventing obsolete `tools` package resolution.
   - Removed old deprecated workflow variants (`build-apk-balanced-hybrid_Version5.yml`, `build-apk-fast-resilient_Version5.yml`, `build-apk-high-feedback_Version5.yml`).
   - Configured automated triggers on `push` and `pull_request` to `main`, plus `workflow_dispatch` with manual `diagnostics` input (normal, verbose, debug).
   - Configured least-privilege `contents: read` permissions and concurrency run cancellation.
