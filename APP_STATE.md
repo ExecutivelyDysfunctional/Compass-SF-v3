@@ -6,16 +6,27 @@
 ---
 
 ## [Implemented]
+- **Settings & Modularity (Chunk 3)**: Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+), mobility/wheelchair accessibility priority toggle, and dietary filter presets (Halal, Vegetarian, Kosher). All fully wired into Find, EBT, Now, and Map screens.
 - **Now Screen (Today's Navigator Dashboard)**:
   - Time-of-day greeting ("Good morning", "Good afternoon", "Good evening, traveler") with subtitle.
   - Quick Category shortcut pills (Food, Shelter, Hygiene, Connect, EBT/Benefits, Medical) routing to Find tab with preset filter.
   - "My Day Checklist" task summary card with direct one-tap toggle completion.
   - "Open Right Now in SF" real-time spotlight cards dynamically verified against current time and day schedule blocks.
-- **Find Screen (Directory Search & Interactive SF Map)**:
+- **Dedicated Fullscreen Map Screen (`Screen.Map` / `MapScreen`)**:
+  - Fullscreen, dedicated street cartography navigation page replacing previous awkward embedded views.
+  - Quick-access entry points: Top Bar Map shortcut button on primary tabs, "Explore Map" button on the Now dashboard, and seamless category-linked transitions from Find and Directory views.
+  - Floating top search and category filter bar with instant keyboard dismissal on touch.
+  - 100% offline, zero-API-key hardware-accelerated 60/120fps vector cartography of San Francisco Peninsula.
+  - Dynamic marker clustering grouping pins when zoomed out to prevent visual clutter, expanding on zoom or tap.
+  - Category-coded badges with emoji glyphs and real-time "Open Now" green status indicator dots.
+  - Live GPS radar beacon with pulsing broadcast wave and direct directional compass line to inspected resources.
+  - Floating action controls (Zoom +, Zoom -, Recenter on User/Downtown, Layer labels toggle).
+  - Floating bottom preview card with one-tap phone call, zero-cost Google Maps / system navigation handoff, and detailed inspection route.
+- **Find Screen (Directory Search & Filtering)**:
   - Real-time text search across resource names, summaries, descriptions, sources, and tags.
   - Multi-axis filtering: Category chips (All, Food, Shelter, Hygiene, Health, Crisis, ID/Docs, Benefits, Legal, Connect), Neighborhood dropdown (Tenderloin, SoMa, Mission, etc.), and Data Source dropdown (ShelterTech SF Service Guide, DataSF, 211 Bay Area).
   - Quick-action toggle filters: Open Now (verified against current time), Favorites Only, and Hidden items.
-  - Dual presentation modes: Responsive List view and custom Canvas-based SF Map view with street grid, Market Street arterial marker, and interactive category-coded pins with popup inspection cards.
+  - Dedicated "Map" switcher action seamlessly routing to the full-screen Map experience with current category filters preserved.
 - **Ask Screen (Navigator AI - Gemini Integration)**:
   - Natural language street navigation and resource consultation powered by Gemini 3.5 Flash via Retrofit.
   - Query input with optional neighborhood filter and "Open now only" toggle constraint.
@@ -45,8 +56,16 @@
   - **Pinch-to-Zoom Image Viewer**: Tap any flyer thumbnail to open a full-screen, interactive image viewer with pinch-to-zoom and pan gestures to verify text while parsing data.
   - AI-assisted unstructured flyer/text parsing into structured database fields.
   - Manual entry fallback editor for submitting new community resources.
+- **Settings & Modularity Enhancements (Chunk 1 & Chunk 2)**:
+  - **Chunk 1: Navigation & Workspace Config**: Configure default initial landing screen (Now, Map, Find, or Day), dynamic reorderable 2-6 bottom bar navigation tabs, persistent default SF neighborhood anchor, and quick workspace reset.
+  - **Chunk 2: Map & Cartography Controls**:
+    - **Map Vector Layer Toggles**: Dedicated controls for Transit Lines & Subway (BART tunnels, Muni Metro light rail routes, and station nodes), Neighborhood Boundary Outlines (Tenderloin, SoMa, Mission, Civic Center, Chinatown, Castro, etc.), and Street Names & Landmark Badges (City Hall, Ferry Bldg, etc.).
+    - **Marker Clustering Density Selector**: Granular clustering mode selection (`Tight` / 32dp, `Balanced` / 50dp, `Spread` / 75dp) controlling how closely grouped pins merge into numbered cluster bubbles.
+    - **Battery Saver / Reduced Motion Mode**: Toggle that disables high-frequency canvas animations and continuous pulsing GPS radar waves to minimize battery consumption when walking outdoors.
+    - **Quick Reset for Map Settings**: Dedicated reset button restoring all cartography layer options, clustering radius, and animations to recommended defaults.
+    - **Room Persistence**: All map cartography preferences automatically persist in Room SQLite database.
+  - **Quick Settings Index & Jump Navigation**: Fast-jump index grid at the top of the Settings screen with interactive direct-scroll buttons (Navigation, Themes, Accents, Text Size, Display, Map Layers, App Icon, Backup & Restore, Hidden Manager, App Statistics), matching numbered section badges on each card, quick "Index ↑" return buttons, and a floating animated "Scroll to Top" button.
 - **Settings & Theming**:
-  - **Quick Settings Index & Jump Navigation**: Fast-jump index grid at the top of the Settings screen with interactive direct-scroll buttons (Atmosphere, Compass Accent, Text Scaling, Street Display, Launcher Icon, Backup & Restore, Hidden Manager, App Statistics), matching numbered section badges on each card, quick "Index ↑" return buttons, and a floating animated "Scroll to Top" button.
   - 5 Theme Modes: Midnight Ink (default dark), OLED Pure Black (battery saver), Daylight Fog (high-contrast light mode), Warm Sunset (warm amber charcoal), Pacific Marine (oceanic teal).
   - 5 Accent Palettes: Beacon Gold, Golden Gate Rust, Pacific Emerald, Ocean Cyan, Mission Violet.
   - Accessible Font Scaling: Standard (100%), Large (115%), Extra Large (130%).
@@ -78,6 +97,10 @@
 ---
 
 ## [Next Up]
+- **Settings & Modularity Enhancements**:
+  - **Chunk 4: AI Navigator Customization (Gemini Integration)**: Response format & conciseness style picker (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), Offline-only heuristic fallback toggle, and custom API key / endpoint entry.
+  - **Chunk 5: Privacy, Data Sources & Granular Portability**: Granular backup/restore checkboxes (export/import specific entity sets), ephemeral/incognito search mode, photo cache manager, data source toggles, and database factory re-seeding.
+  - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
 - **Share Resource Card**: Android share sheet integration to quickly text or copy address, hours, and notes for a resource to a friend or client.
 - **Resource Verification & Community Wait Time Analytics**: Extended historical wait time graphing and crowdsourced open-now confirmation telemetry.
 
@@ -100,7 +123,8 @@
 - `app/src/main/res/drawable/ic_launcher_background.xml` - Launcher background drawable
 - `app/src/main/res/drawable/ic_launcher_foreground.xml` - Launcher foreground drawable
 - `app/src/main/java/com/example/MainActivity.kt` - Main Activity, top bar, FAB, bottom navigation, and NavHost routing
-- `app/src/main/java/com/example/ui/Screens.kt` - Compose screens (Now, Find, Ask, Day, Ebt, Add, Info, Settings, Detail) and Map View
+- `app/src/main/java/com/example/ui/Screens.kt` - Compose screens (Now, Find, Ask, Day, Ebt, Add, Info, Settings, Detail)
+- `app/src/main/java/com/example/ui/ComposeCanvasMap.kt` - Native Jetpack Compose Canvas vector map engine with gesture pan/zoom, clustering, radar, and preview cards
 - `app/src/main/java/com/example/ui/Navigation.kt` - Screen sealed class definitions and CompassViewModel state management
 - `app/src/main/java/com/example/ui/Theme.kt` - Custom M3 theming system, theme modes, accent palettes, and typography scaling
 - `app/src/main/java/com/example/data/LocationHelper.kt` - 100% on-device Haversine proximity calculations and SF neighborhood anchor resolution
@@ -109,3 +133,4 @@
 - `app/src/main/java/com/example/data/Repository.kt` - CompassRepository data access layer and DB seeding logic
 - `app/src/main/java/com/example/data/AiService.kt` - Gemini 3.5 Flash REST client, structured parsing, and offline fallbacks
 - `app/src/main/java/com/example/data/SeedData.kt` - Pre-seeded curated SF community resources and EBT restaurant locations
+Updated UI to add filters and presets, and wired them into Find, EBT, Now, and Map screens.

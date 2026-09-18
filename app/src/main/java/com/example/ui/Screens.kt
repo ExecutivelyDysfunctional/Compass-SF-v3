@@ -1,4 +1,7 @@
 package com.example.ui
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+
 
 import android.content.Intent
 import android.net.Uri
@@ -375,6 +378,7 @@ fun LocationBar(
 fun NowScreen(
     viewModel: CompassViewModel,
     onNavigateToFind: (String) -> Unit,
+    onNavigateToMap: () -> Unit = {},
     onNavigateToDetail: (Int) -> Unit
 ) {
     val resources by viewModel.allResources.collectAsState()
@@ -383,8 +387,13 @@ fun NowScreen(
     val sortByDistance by viewModel.sortByDistance
     var showLocationDialog by remember { mutableStateOf(false) }
     
-    val openNowList = remember(resources, userLocation, sortByDistance) {
-        val openResources = resources.filter { !it.hidden && isResourceOpen(it.open24, it.hours) }
+    val openNowList = remember(resources, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value) {
+        val openResources = resources.filter { res ->
+            !res.hidden && isResourceOpen(res.open24, res.hours) &&
+            PresetMatcher.matchesDemographic(res, viewModel.demographicPresets.value) &&
+            PresetMatcher.matchesAccessibility(res, viewModel.accessibilityMobilityMode.value) &&
+            PresetMatcher.matchesDietary(res, viewModel.dietaryPresets.value)
+        }
         if (sortByDistance && userLocation != null) {
             openResources.sortedBy { res ->
                 viewModel.getDistanceToResource(res) ?: Double.MAX_VALUE
@@ -432,15 +441,34 @@ fun NowScreen(
                 onOpenDialog = { showLocationDialog = true }
             )
         }
-
-        // Quick Category Row
+        
         item {
-            Text(
-                text = "Quick Search",
-                style = MaterialTheme.typography.titleMedium,
-                color = Mist100,
-                fontWeight = FontWeight.SemiBold
-            )
+            ActivePresetsBanner(viewModel = viewModel)
+        }
+
+        // Quick Category Row & Map Banner
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Quick Search",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Mist100,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                TextButton(
+                    onClick = onNavigateToMap,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Icon(Icons.Default.Map, contentDescription = null, tint = Beacon500, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Explore Map", color = Beacon500, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -594,6 +622,7 @@ fun NowScreen(
 fun FindScreen(
     viewModel: CompassViewModel,
     initialCategory: String,
+    onNavigateToMap: (String) -> Unit = {},
     onNavigateToDetail: (Int) -> Unit
 ) {
     val resources by viewModel.allResources.collectAsState()
@@ -634,7 +663,7 @@ fun FindScreen(
         "211" to "211 Bay Area"
     )
 
-    val filteredList = remember(resources, searchQuery, selectedCategory, selectedNeighborhood, selectedSource, filterOpenNow, filterFavorites, filterHidden, userLocation, sortByDistance) {
+    val filteredList = remember(resources, searchQuery, selectedCategory, selectedNeighborhood, selectedSource, filterOpenNow, filterFavorites, filterHidden, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value) {
         val list = resources.filter { res ->
             val matchesSearch = res.name.contains(searchQuery, ignoreCase = true) || 
                     res.summary.contains(searchQuery, ignoreCase = true) ||
@@ -648,7 +677,11 @@ fun FindScreen(
             val matchesFav = !filterFavorites || res.favorite
             val matchesHidden = if (filterHidden) res.hidden else !res.hidden
 
-            matchesSearch && matchesCategory && matchesNeighborhood && matchesSource && matchesOpen && matchesFav && matchesHidden
+            val matchesDemographic = PresetMatcher.matchesDemographic(res, viewModel.demographicPresets.value)
+            val matchesAccessibility = PresetMatcher.matchesAccessibility(res, viewModel.accessibilityMobilityMode.value)
+            val matchesDietary = PresetMatcher.matchesDietary(res, viewModel.dietaryPresets.value)
+
+            matchesSearch && matchesCategory && matchesNeighborhood && matchesSource && matchesOpen && matchesFav && matchesHidden && matchesDemographic && matchesAccessibility && matchesDietary
         }
         if (sortByDistance && userLocation != null) {
             list.sortedBy { res ->
@@ -698,6 +731,11 @@ fun FindScreen(
             viewModel = viewModel,
             onOpenDialog = { showLocationDialog = true },
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp)
+        )
+
+        ActivePresetsBanner(
+            viewModel = viewModel,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
 
         Spacer(modifier = Modifier.height(4.dp))
@@ -886,10 +924,12 @@ fun FindScreen(
         }
 
         if (isMapView) {
-            ResourceMapView(
+            ComposeCanvasMap(
                 resources = filteredList,
+                viewModel = viewModel,
                 onNavigateToDetail = onNavigateToDetail,
-                onFavoriteClick = { res -> viewModel.toggleResourceFavorite(res) }
+                onFavoriteClick = { res -> viewModel.toggleResourceFavorite(res) },
+                modifier = Modifier.fillMaxSize()
             )
         } else {
             // The list
@@ -942,261 +982,28 @@ fun ResourceMapView(
     onNavigateToDetail: (Int) -> Unit,
     onFavoriteClick: (Resource) -> Unit
 ) {
+    val context = LocalContext.current
     var selectedResource by remember { mutableStateOf<Resource?>(null) }
     
-    fun getNeighborhoodCoords(neighborhood: String): Pair<Float, Float> {
-        return when (neighborhood.lowercase()) {
-            "tenderloin" -> 0.45f to 0.42f
-            "soma" -> 0.60f to 0.55f
-            "mission" -> 0.50f to 0.70f
-            "financial district", "financial" -> 0.70f to 0.35f
-            "bayview" -> 0.80f to 0.85f
-            "haight" -> 0.25f to 0.50f
-            "marina" -> 0.45f to 0.15f
-            "civic center" -> 0.40f to 0.45f
-            "castro" -> 0.35f to 0.65f
-            else -> {
-                val hash = Math.abs(neighborhood.hashCode()) % 100
-                Pair(0.2f + (hash % 60) / 100f, 0.2f + ((hash / 10) % 60) / 100f)
-            }
-        }
-    }
-
+    val cInk800 = Ink800
+    // Fallback if standalone without ViewModel
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Ink950)
     ) {
-        val streetColor = Ink800
-        val marketColor = Ink700
-
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            val canvasWidth = size.width
-            val canvasHeight = size.height
-
-            // Draw SF Bay water on east
-            drawRect(
-                color = Color(0xFF0F2027),
-                topLeft = androidx.compose.ui.geometry.Offset(canvasWidth * 0.75f, 0f),
-                size = androidx.compose.ui.geometry.Size(canvasWidth * 0.25f, canvasHeight)
-            )
-
-            // Grid lines
-            for (i in 1..5) {
-                val y = canvasHeight * (i / 6f)
+        // Render pins on responsive Canvas
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            // Simple subtle street grid
+            for (i in 1..4) {
                 drawLine(
-                    color = streetColor,
-                    start = androidx.compose.ui.geometry.Offset(0f, y),
-                    end = androidx.compose.ui.geometry.Offset(canvasWidth * 0.75f, y),
-                    strokeWidth = 2f
+                    color = cInk800,
+                    start = Offset(0f, h * (i / 5f)),
+                    end = Offset(w, h * (i / 5f)),
+                    strokeWidth = 1.5f
                 )
-            }
-            for (j in 1..5) {
-                val x = canvasWidth * (j / 6f) * 0.75f
-                drawLine(
-                    color = streetColor,
-                    start = androidx.compose.ui.geometry.Offset(x, 0f),
-                    end = androidx.compose.ui.geometry.Offset(x, canvasHeight),
-                    strokeWidth = 2f
-                )
-            }
-
-            // Market Street
-            drawLine(
-                color = marketColor,
-                start = androidx.compose.ui.geometry.Offset(canvasWidth * 0.75f, canvasHeight * 0.3f),
-                end = androidx.compose.ui.geometry.Offset(canvasWidth * 0.2f, canvasHeight * 0.6f),
-                strokeWidth = 4f
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Surface(
-                    color = Ink900.copy(alpha = 0.9f),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, Ink700)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .background(Beacon500, CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("SF Area • ${resources.size} Active Pins", color = Mist100, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Text("Tap any pin to inspect", color = Mist400, fontSize = 10.sp)
-            }
-        }
-
-        BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            val width = constraints.maxWidth.toFloat()
-            val height = constraints.maxHeight.toFloat()
-
-            resources.forEach { res ->
-                val (nx, ny) = getNeighborhoodCoords(res.neighborhood)
-                val pinX = (nx * width * 0.75f).coerceIn(24f, width - 24f)
-                val pinY = (ny * height).coerceIn(40f, height - 100f)
-
-                val isSelected = selectedResource?.id == res.id
-                val pinColor = when (res.category) {
-                    "food" -> Beacon500
-                    "shelter" -> Color(0xFF38BDF8)
-                    "hygiene" -> Color(0xFF34D399)
-                    "health" -> Color(0xFFF43F5E)
-                    "mental" -> Color(0xFFFB923C)
-                    else -> Color(0xFFA78BFA)
-                }
-
-                Box(
-                    modifier = Modifier
-                        .offset { androidx.compose.ui.unit.IntOffset((pinX - 22).toInt(), (pinY - 22).toInt()) }
-                        .size(44.dp)
-                        .clickable { selectedResource = res },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (isSelected) Mist100 else pinColor,
-                        shadowElevation = if (isSelected) 8.dp else 4.dp,
-                        border = BorderStroke(2.dp, if (isSelected) Beacon500 else Ink950),
-                        modifier = Modifier.size(34.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = when (res.category) {
-                                    "food" -> "🍲"
-                                    "shelter" -> "🏠"
-                                    "hygiene" -> "🚿"
-                                    "health" -> "🩺"
-                                    "mental" -> "💬"
-                                    else -> "📍"
-                                },
-                                fontSize = 14.sp
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        selectedResource?.let { res ->
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Ink900),
-                    border = BorderStroke(1.dp, Beacon500),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Surface(
-                                        color = Beacon500.copy(alpha = 0.2f),
-                                        shape = RoundedCornerShape(4.dp)
-                                    ) {
-                                        Text(
-                                            text = res.category.uppercase(),
-                                            color = Beacon400,
-                                            fontSize = 9.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = res.neighborhood,
-                                        color = Mist400,
-                                        fontSize = 11.sp
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = res.name,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Mist100,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Spacer(modifier = Modifier.height(2.dp))
-                                Text(
-                                    text = res.address,
-                                    color = Mist400,
-                                    fontSize = 12.sp
-                                )
-                            }
-
-                            IconButton(
-                                onClick = { selectedResource = null },
-                                modifier = Modifier.size(24.dp)
-                            ) {
-                                Icon(Icons.Default.Close, contentDescription = "Close preview", tint = Mist400)
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            OutlinedButton(
-                                onClick = { selectedResource = null },
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100),
-                                border = BorderStroke(1.dp, Ink700),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Dismiss", fontSize = 12.sp)
-                            }
-
-                            Button(
-                                onClick = { onNavigateToDetail(res.id) },
-                                colors = ButtonDefaults.buttonColors(containerColor = Beacon500),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("View Details", color = OnAccentColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -1434,7 +1241,7 @@ fun EbtScreen(
     val neighborhoods = listOf("all" to "All Neighborhoods") +
             rmpLocations.map { it.neighborhood }.filter { it.isNotBlank() }.distinct().sorted().map { it to it }
 
-    val filteredList = remember(rmpLocations, searchQuery, selectedCuisine, selectedNeighborhood, filterFavorites, filterChains, filterOpenNow, userLocation, sortByDistance) {
+    val filteredList = remember(rmpLocations, searchQuery, selectedCuisine, selectedNeighborhood, filterFavorites, filterChains, filterOpenNow, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value) {
         val list = rmpLocations.filter { loc ->
             val matchesSearch = loc.name.contains(searchQuery, ignoreCase = true) || 
                     loc.address.contains(searchQuery, ignoreCase = true) ||
@@ -1447,7 +1254,11 @@ fun EbtScreen(
             val matchesChain = !filterChains || loc.chain
             val matchesOpen = !filterOpenNow || isResourceOpen(loc.open24, loc.hours)
 
-            matchesSearch && matchesCuisine && matchesNeighborhood && matchesFav && matchesChain && matchesOpen
+            val matchesDemographic = PresetMatcher.matchesRmpDemographic(loc, viewModel.demographicPresets.value)
+            val matchesAccessibility = PresetMatcher.matchesRmpAccessibility(loc, viewModel.accessibilityMobilityMode.value)
+            val matchesDietary = PresetMatcher.matchesRmpDietary(loc, viewModel.dietaryPresets.value)
+
+            matchesSearch && matchesCuisine && matchesNeighborhood && matchesFav && matchesChain && matchesOpen && matchesDemographic && matchesAccessibility && matchesDietary
         }
         if (sortByDistance && userLocation != null) {
             list.sortedBy { loc ->
@@ -1500,6 +1311,11 @@ fun EbtScreen(
             LocationBar(
                 viewModel = viewModel,
                 onOpenDialog = { showLocationDialog = true }
+            )
+
+            ActivePresetsBanner(
+                viewModel = viewModel,
+                modifier = Modifier.padding(top = 8.dp)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -3064,17 +2880,20 @@ fun SettingsScreen(
     }
 
     // Exact index targets in the LazyColumn
-    val targetThemeIndex = 3
-    val targetAccentIndex = 4
-    val targetTextIndex = 5
-    val targetDisplayIndex = 6
-    val targetIconIndex = 7
-    val targetBackupIndex = 8
-    val targetHiddenIndex = 9
+    val targetWorkspaceIndex = 3
+    val targetFiltersIndex = 4
+    val targetThemeIndex = 5
+    val targetAccentIndex = 6
+    val targetTextIndex = 7
+    val targetDisplayIndex = 8
+    val targetMapIndex = 9
+    val targetIconIndex = 10
+    val targetBackupIndex = 11
+    val targetHiddenIndex = 12
     val targetStatsIndex = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-        9 + 1 + hiddenResources.size + hiddenRmp.size
+        12 + 1 + hiddenResources.size + hiddenRmp.size
     } else {
-        9
+        12
     }
 
     Box(
@@ -3100,7 +2919,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        "Personalize theme atmosphere, contrast, font scaling, and navigation styles",
+                        "Personalize theme atmosphere, navigation shortcuts, font scaling, and neighborhood anchors",
                         style = MaterialTheme.typography.bodySmall,
                         color = Mist400
                     )
@@ -3164,7 +2983,7 @@ fun SettingsScreen(
                                     .border(1.dp, Ink700, RoundedCornerShape(12.dp))
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
-                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 8 else 7
+                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 11 else 10
                                 Text(
                                     "$totalSections Sections",
                                     color = Mist200,
@@ -3178,10 +2997,13 @@ fun SettingsScreen(
 
                         val indexEntries = remember(hiddenResources.size, hiddenRmp.size, targetStatsIndex) {
                             val list = mutableListOf(
+                                Triple("🧭 Navigation", "Startup & Bottom Bar", targetWorkspaceIndex),
+                                Triple("⚙️ Filters", "Demographic & Dietary", targetFiltersIndex),
                                 Triple("🎨 Themes", "Atmosphere & Tones", targetThemeIndex),
                                 Triple("🌈 Accents", "Highlight Colors", targetAccentIndex),
                                 Triple("🔤 Text Size", "Scaling & Readability", targetTextIndex),
                                 Triple("🔆 Display", "Contrast & Density", targetDisplayIndex),
+                                Triple("🗺️ Map Layers", "Transit, Badges & Radar", targetMapIndex),
                                 Triple("📱 App Icon", "Launcher Style", targetIconIndex),
                                 Triple("💾 Backup", "Export & Import JSON", targetBackupIndex)
                             )
@@ -3422,7 +3244,700 @@ fun SettingsScreen(
             }
         }
 
-        // Section 1: Atmosphere & Theme Modes
+        // Section 1: Navigation & Workspace Configuration
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_navigation")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 1", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Navigation & Workspace",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Text(
+                        "Configure default startup destination, customize bottom navigation shortcuts, and set default neighborhood anchor",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection A: Startup Screen Destination
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Home,
+                            contentDescription = null,
+                            tint = Beacon500,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            "Default Startup Screen",
+                            fontWeight = FontWeight.Bold,
+                            color = Mist100,
+                            fontSize = 14.sp
+                        )
+                    }
+                    Text(
+                        "Select which screen automatically opens when starting Compass SF",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val startupOptions = listOf(
+                        Triple("now", "Now — Today's Navigator", "Daily meal times, urgent shelters & open rest stops"),
+                        Triple("find", "Find — Directory Search", "Directory categories, tags & keyword search"),
+                        Triple("map", "Map — Fullscreen City Map", "Interactive map with pins, GPS tracker & transit routes"),
+                        Triple("day", "Day — My Day Checklist", "Personal schedule, visits & daily tasks"),
+                        Triple("ask", "Ask — AI Street Navigator", "AI guide for emergency & street resources"),
+                        Triple("ebt", "EBT — Restaurant Meals", "CalFresh EBT restaurant hot meals across SF")
+                    )
+
+                    val activeStartup = viewModel.startupScreenRoute.value
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        startupOptions.forEach { (route, title, desc) ->
+                            val isSelected = activeStartup == route
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Ink800 else Color.Transparent)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) Beacon500.copy(alpha = 0.6f) else Ink800,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { viewModel.setStartupScreen(route) }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    val icon = when (route) {
+                                        "now" -> Icons.Default.Explore
+                                        "find" -> Icons.Default.Search
+                                        "map" -> Icons.Default.Map
+                                        "day" -> Icons.Default.Checklist
+                                        "ask" -> Icons.Default.AutoAwesome
+                                        "ebt" -> Icons.Default.CreditCard
+                                        else -> Icons.Default.Home
+                                    }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .background(
+                                                if (isSelected) Beacon500.copy(alpha = 0.2f) else Ink800,
+                                                CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            icon,
+                                            contentDescription = null,
+                                            tint = if (isSelected) Beacon400 else Mist400,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            title,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Beacon400 else Mist100,
+                                            fontSize = 13.sp
+                                        )
+                                        Text(
+                                            desc,
+                                            fontSize = 10.5.sp,
+                                            color = Mist400,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { viewModel.setStartupScreen(route) },
+                                    colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection B: Bottom Navigation Bar Customization
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Tune,
+                                contentDescription = null,
+                                tint = Beacon500,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Bottom Navigation Bar",
+                                fontWeight = FontWeight.Bold,
+                                color = Mist100,
+                                fontSize = 14.sp
+                            )
+                        }
+                        val navCount = viewModel.bottomNavItems.value.size
+                        Box(
+                            modifier = Modifier
+                                .background(Ink800, RoundedCornerShape(10.dp))
+                                .border(1.dp, Ink700, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                "$navCount / 6 active",
+                                color = Beacon400,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                    Text(
+                        "Toggle shortcuts to display on the persistent bottom navigation bar (min 2, max 6). Use the arrows to reorder tabs.",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Live Bottom Bar Order Strip
+                    Text(
+                        "CURRENT BAR ORDER (TAP ARROWS TO REORDER):",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Mist400,
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val activeNavs = viewModel.bottomNavItems.value
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        activeNavs.forEachIndexed { index, route ->
+                            val (title, icon) = when (route) {
+                                "now" -> "Now (Navigator)" to Icons.Default.Explore
+                                "find" -> "Find (Directory)" to Icons.Default.Search
+                                "map" -> "Map (City Map)" to Icons.Default.Map
+                                "ask" -> "Ask (AI Guide)" to Icons.Default.AutoAwesome
+                                "day" -> "Day (Checklist)" to Icons.Default.Checklist
+                                "ebt" -> "EBT (Meals)" to Icons.Default.CreditCard
+                                "info" -> "Info (City Hotlines)" to Icons.Default.Info
+                                "add" -> "Add (Resource)" to Icons.Default.Add
+                                else -> route.replaceFirstChar { it.uppercase() } to Icons.Default.Explore
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Ink800, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .background(Beacon500.copy(alpha = 0.2f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            "${index + 1}",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Beacon400
+                                        )
+                                    }
+                                    Icon(icon, contentDescription = null, tint = Beacon500, modifier = Modifier.size(16.dp))
+                                    Text(title, color = Mist100, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    IconButton(
+                                        onClick = { viewModel.moveBottomNavItem(route, -1) },
+                                        enabled = index > 0,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ArrowBack,
+                                            contentDescription = "Move Left/Up",
+                                            tint = if (index > 0) Mist100 else Ink700,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.moveBottomNavItem(route, 1) },
+                                        enabled = index < activeNavs.size - 1,
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ArrowForward,
+                                            contentDescription = "Move Right/Down",
+                                            tint = if (index < activeNavs.size - 1) Mist100 else Ink700,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Available Tabs Toggles
+                    Text(
+                        "AVAILABLE TAB SHORTCUTS:",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Mist400,
+                        letterSpacing = 0.5.sp
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val allAvailableShortcuts = listOf(
+                        "now" to ("Now" to Icons.Default.Explore),
+                        "find" to ("Find" to Icons.Default.Search),
+                        "map" to ("Map" to Icons.Default.Map),
+                        "ask" to ("Ask AI" to Icons.Default.AutoAwesome),
+                        "day" to ("Day" to Icons.Default.Checklist),
+                        "ebt" to ("EBT" to Icons.Default.CreditCard),
+                        "info" to ("Info" to Icons.Default.Info),
+                        "add" to ("Add" to Icons.Default.Add)
+                    )
+
+                    // Render as a 2-column grid of toggle chips
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (i in allAvailableShortcuts.indices step 2) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val item1 = allAvailableShortcuts[i]
+                                val isActive1 = activeNavs.contains(item1.first)
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (isActive1) Beacon500.copy(alpha = 0.15f) else Ink800)
+                                        .border(
+                                            1.dp,
+                                            if (isActive1) Beacon500.copy(alpha = 0.6f) else Ink700,
+                                            RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { viewModel.toggleBottomNavItem(item1.first) }
+                                        .padding(horizontal = 8.dp, vertical = 8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                item1.second.second,
+                                                contentDescription = null,
+                                                tint = if (isActive1) Beacon400 else Mist400,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                item1.second.first,
+                                                color = if (isActive1) Mist100 else Mist400,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (isActive1) FontWeight.Bold else FontWeight.Normal
+                                            )
+                                        }
+                                        Checkbox(
+                                            checked = isActive1,
+                                            onCheckedChange = { viewModel.toggleBottomNavItem(item1.first) },
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = Beacon500,
+                                                checkmarkColor = OnAccentColor
+                                            ),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+
+                                if (i + 1 < allAvailableShortcuts.size) {
+                                    val item2 = allAvailableShortcuts[i + 1]
+                                    val isActive2 = activeNavs.contains(item2.first)
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isActive2) Beacon500.copy(alpha = 0.15f) else Ink800)
+                                            .border(
+                                                1.dp,
+                                                if (isActive2) Beacon500.copy(alpha = 0.6f) else Ink700,
+                                                RoundedCornerShape(8.dp)
+                                            )
+                                            .clickable { viewModel.toggleBottomNavItem(item2.first) }
+                                            .padding(horizontal = 8.dp, vertical = 8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    item2.second.second,
+                                                    contentDescription = null,
+                                                    tint = if (isActive2) Beacon400 else Mist400,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    item2.second.first,
+                                                    color = if (isActive2) Mist100 else Mist400,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = if (isActive2) FontWeight.Bold else FontWeight.Normal
+                                                )
+                                            }
+                                            Checkbox(
+                                                checked = isActive2,
+                                                onCheckedChange = { viewModel.toggleBottomNavItem(item2.first) },
+                                                colors = CheckboxDefaults.colors(
+                                                    checkedColor = Beacon500,
+                                                    checkmarkColor = OnAccentColor
+                                                ),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection C: Persistent Default Neighborhood Anchor
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Place,
+                            contentDescription = null,
+                            tint = Beacon500,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            "Default Neighborhood Anchor",
+                            fontWeight = FontWeight.Bold,
+                            color = Mist100,
+                            fontSize = 14.sp
+                        )
+                    }
+                    Text(
+                        "Set the home anchor used for distance calculations, walking estimates, and nearby service sorting when GPS is unavailable",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val activeAnchorId = viewModel.defaultNeighborhoodAnchorId.value
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        LocationHelper.NEIGHBORHOOD_ANCHORS.forEach { anchor ->
+                            val isSelected = activeAnchorId == anchor.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Ink800 else Color.Transparent)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) Beacon500.copy(alpha = 0.6f) else Ink800,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable {
+                                        viewModel.setDefaultNeighborhoodAnchor(anchor.id)
+                                    }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(26.dp)
+                                            .background(
+                                                if (isSelected) Beacon500.copy(alpha = 0.2f) else Ink800,
+                                                CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.LocationOn,
+                                            contentDescription = null,
+                                            tint = if (isSelected) Beacon400 else Mist400,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            anchor.name,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) Beacon400 else Mist100,
+                                            fontSize = 13.sp
+                                        )
+                                        Text(
+                                            anchor.subtitle,
+                                            fontSize = 10.5.sp,
+                                            color = Mist400,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                }
+
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { viewModel.setDefaultNeighborhoodAnchor(anchor.id) },
+                                    colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Reset Navigation Defaults Button
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.resetWorkspaceNavigationToDefaults()
+                            Toast.makeText(context, "Navigation & workspace reset to defaults", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(1.dp, Ink700),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon400)
+                    ) {
+                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Reset Navigation & Workspace to Defaults", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // Section 2: Search, Accessibility & Demographic Presets
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_filters")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 2", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Filters & Presets",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Text(
+                        "Set global demographic, accessibility, and dietary preferences for the directory and map.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Physical Accessibility
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("Accessibility & Mobility", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                            Text("Filter for wheelchair-accessible entrances and step-free navigation.", fontSize = 11.sp, color = Mist400)
+                        }
+                        Switch(
+                            checked = viewModel.accessibilityMobilityMode.value,
+                            onCheckedChange = { viewModel.toggleAccessibilityMobilityMode(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Demographics
+                    Text("Demographic Focus", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                    Text("Select target population groups to highlight relevant services.", fontSize = 11.sp, color = Mist400)
+                    Spacer(modifier = Modifier.height(10.dp))
+                    
+                    val activeDemos = viewModel.demographicPresets.value
+                    val demoPresets = DemographicPreset.entries
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        for (i in demoPresets.indices step 2) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                for (j in 0..1) {
+                                    if (i + j < demoPresets.size) {
+                                        val preset = demoPresets[i + j]
+                                        val isSelected = activeDemos.contains(preset)
+                                        FilterChip(
+                                            selected = isSelected,
+                                            onClick = { viewModel.toggleDemographicPreset(preset) },
+                                            label = { Text("${preset.icon} ${preset.title}", fontSize = 11.sp, color = if (isSelected) Ink950 else Mist200) },
+                                            colors = FilterChipDefaults.filterChipColors(
+                                                selectedContainerColor = Beacon500,
+                                                containerColor = Ink800
+                                            ),
+                                            border = FilterChipDefaults.filterChipBorder(
+                                                borderColor = if (isSelected) Beacon500 else Ink700,
+                                                enabled = true, selected = isSelected
+                                            ),
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                    } else {
+                                        Spacer(modifier = Modifier.weight(1f))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Dietary
+                    Text("Dietary Preferences", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                    Text("Filter EBT locations and free dining services.", fontSize = 11.sp, color = Mist400)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val activeDietary = viewModel.dietaryPresets.value
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    ) {
+                        DietaryPreset.entries.forEach { preset ->
+                            val isSelected = activeDietary.contains(preset)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.toggleDietaryPreset(preset) },
+                                label = { Text("${preset.icon} ${preset.title}", fontSize = 11.sp, color = if (isSelected) Ink950 else Mist200) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Beacon500,
+                                    containerColor = Ink800
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = if (isSelected) Beacon500 else Ink700,
+                                    enabled = true, selected = isSelected
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 3: Atmosphere & Theme Modes
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -3444,7 +3959,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("SECTION 1", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text("SECTION 3", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text(
                                 "Theme Atmosphere",
@@ -3539,7 +4054,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 2: Accent Highlight Color
+        // Section 4: Accent Highlight Color
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -3561,7 +4076,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("SECTION 2", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text("SECTION 4", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text(
                                 "Compass Accent Color",
@@ -3658,7 +4173,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 3: Text Scaling & Readability
+        // Section 4: Text Scaling & Readability
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -3680,7 +4195,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("SECTION 3", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text("SECTION 5", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text(
                                 "Text Scaling & Readability",
@@ -3759,7 +4274,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 4: Street Display & Contrast Configurations
+        // Section 5: Street Display & Contrast Configurations
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -3781,7 +4296,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("SECTION 4", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text("SECTION 6", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text(
                                 "Street Display Configuration",
@@ -3885,7 +4400,392 @@ fun SettingsScreen(
             }
         }
 
-        // Section 5: Launcher Identity Style
+        // Section 7: Map & Cartography Controls (Chunk 2)
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_map")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 7", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Map & Cartography",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Text(
+                        "Configure map vector layers, marker clustering distance, and battery saver radar mode",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection A: Map Vector Layers
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Layers,
+                            contentDescription = null,
+                            tint = Beacon500,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            "Map Vector Layers",
+                            fontWeight = FontWeight.Bold,
+                            color = Mist100,
+                            fontSize = 14.sp
+                        )
+                    }
+                    Text(
+                        "Toggle cartographic elements and transit overlays rendered on the canvas",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val mapTransit by viewModel.mapLayerTransit
+                    val mapNeighborhoods by viewModel.mapLayerNeighborhoods
+                    val mapLandmarks by viewModel.mapLayerLandmarks
+
+                    // 1. Transit Lines & Stops Toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (mapTransit) Beacon500.copy(alpha = 0.08f) else Ink800)
+                            .border(1.dp, if (mapTransit) Beacon500.copy(alpha = 0.4f) else Ink700, RoundedCornerShape(8.dp))
+                            .clickable { viewModel.toggleMapLayerTransit(!mapTransit) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(Color(0xFF0099D8).copy(alpha = 0.2f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.DirectionsTransit,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    "Transit Lines & Subway",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Mist100,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    "BART tunnels, Muni Metro light rail routes, and station nodes",
+                                    fontSize = 10.5.sp,
+                                    color = Mist400
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = mapTransit,
+                            onCheckedChange = { viewModel.toggleMapLayerTransit(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // 2. Neighborhood Boundary Outlines Toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (mapNeighborhoods) Beacon500.copy(alpha = 0.08f) else Ink800)
+                            .border(1.dp, if (mapNeighborhoods) Beacon500.copy(alpha = 0.4f) else Ink700, RoundedCornerShape(8.dp))
+                            .clickable { viewModel.toggleMapLayerNeighborhoods(!mapNeighborhoods) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(Color(0xFFF59E0B).copy(alpha = 0.2f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Map,
+                                    contentDescription = null,
+                                    tint = Color(0xFFF59E0B),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    "Neighborhood Boundaries",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Mist100,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    "Outlined zones & labels for Tenderloin, SoMa, Mission & more",
+                                    fontSize = 10.5.sp,
+                                    color = Mist400
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = mapNeighborhoods,
+                            onCheckedChange = { viewModel.toggleMapLayerNeighborhoods(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // 3. Street Names & Landmark Badges Toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (mapLandmarks) Beacon500.copy(alpha = 0.08f) else Ink800)
+                            .border(1.dp, if (mapLandmarks) Beacon500.copy(alpha = 0.4f) else Ink700, RoundedCornerShape(8.dp))
+                            .clickable { viewModel.toggleMapLayerLandmarks(!mapLandmarks) }
+                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(Color(0xFF10B981).copy(alpha = 0.2f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.LocationCity,
+                                    contentDescription = null,
+                                    tint = Color(0xFF34D399),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    "Street Names & Landmarks",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Mist100,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    "SF landmark badges (City Hall, Ferry Bldg) and street corridors",
+                                    fontSize = 10.5.sp,
+                                    color = Mist400
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = mapLandmarks,
+                            onCheckedChange = { viewModel.toggleMapLayerLandmarks(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection B: Marker Clustering Density
+                    val activeClustering by viewModel.mapClusteringMode
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Grain,
+                            contentDescription = null,
+                            tint = Beacon500,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            "Marker Clustering Density",
+                            fontWeight = FontWeight.Bold,
+                            color = Mist100,
+                            fontSize = 14.sp
+                        )
+                    }
+                    Text(
+                        "Controls how closely grouped map pins merge into numbered cluster bubbles",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        MapClusteringMode.entries.forEach { mode ->
+                            val isSelected = activeClustering == mode
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Beacon500 else Ink800)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) Beacon400 else Ink700,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { viewModel.selectMapClusteringMode(mode) }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        mode.displayName,
+                                        color = if (isSelected) OnAccentColor else Mist100,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        mode.subtitle,
+                                        color = if (isSelected) OnAccentColor.copy(alpha = 0.85f) else Mist400,
+                                        fontSize = 10.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection C: Performance & Battery Saver Mode
+                    val mapReducedMotion by viewModel.mapReducedMotion
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .background(if (mapReducedMotion) Emerald500.copy(alpha = 0.2f) else Ink800, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.BatterySaver,
+                                    contentDescription = null,
+                                    tint = if (mapReducedMotion) Emerald500 else Mist400,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    "Battery Saver / Reduced Motion",
+                                    fontWeight = FontWeight.Bold,
+                                    color = Mist100,
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    "Disables continuous GPS radar pulse waves and simplifies rendering to save battery outdoors",
+                                    fontSize = 11.sp,
+                                    color = Mist400
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = mapReducedMotion,
+                            onCheckedChange = { viewModel.toggleMapReducedMotion(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Reset Map Defaults Button
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.resetMapSettingsToDefaults()
+                            Toast.makeText(context, "Map & cartography settings reset to defaults", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        border = BorderStroke(1.dp, Ink700),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon400)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Reset Map Settings to Defaults", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        // Section 7: Launcher Identity Style
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -3907,7 +4807,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("SECTION 5", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text("SECTION 8", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text("Launcher Identity Style", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
                         }
@@ -3949,7 +4849,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 6: Data Portability & Backup (Export & Import)
+        // Section 8: Data Portability & Backup (Export & Import)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -3971,8 +4871,8 @@ fun SettingsScreen(
                                     modifier = Modifier
                                         .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text("SECTION 6", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                    ) {
+                                    Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                                 }
                                 Text(
                                     "Data Portability & Backup",
@@ -4280,7 +5180,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 7: Hidden Resources Manager
+        // Section 9: Hidden Resources Manager
         if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
             item {
                 Row(
@@ -4297,7 +5197,7 @@ fun SettingsScreen(
                                 .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text("SECTION 7", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                         }
                         Text("Hidden Resources Manager", color = Beacon500, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
@@ -4352,7 +5252,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 8: App Statistics & Data Storage Status
+        // Section 10: App Statistics & Data Storage Status
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -4374,7 +5274,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                val secNum = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) "SECTION 8" else "SECTION 7"
+                                val secNum = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) "SECTION 11" else "SECTION 10"
                                 Text(secNum, color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text("Offline Guide Statistics & Storage", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 14.sp)
@@ -5407,6 +6307,57 @@ fun FullScreenImageViewer(imageUri: Uri, onDismiss: () -> Unit) {
             ) {
                 Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.White)
             }
+        }
+    }
+}
+
+@Composable
+fun ActivePresetsBanner(
+    viewModel: CompassViewModel,
+    modifier: Modifier = Modifier
+) {
+    if (!viewModel.hasActivePresets) return
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Beacon500.copy(alpha = 0.15f))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                Icons.Default.FilterList,
+                contentDescription = null,
+                tint = Beacon500,
+                modifier = Modifier.size(16.dp)
+            )
+            Column {
+                Text(
+                    "Settings Presets Active",
+                    color = Beacon500,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Results are currently filtered by your profile.",
+                    color = Mist200,
+                    fontSize = 11.sp
+                )
+            }
+        }
+        TextButton(
+            onClick = { viewModel.clearAllPresets() },
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+        ) {
+            Text("Clear", color = Beacon400, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

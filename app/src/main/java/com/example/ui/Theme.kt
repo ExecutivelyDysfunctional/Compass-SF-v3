@@ -118,6 +118,36 @@ enum class AppFontScale(
     }
 }
 
+enum class MapClusteringMode(
+    val id: String,
+    val displayName: String,
+    val subtitle: String,
+    val radiusDp: Int
+) {
+    TIGHT(
+        id = "tight",
+        displayName = "Tight",
+        subtitle = "Small radius (24dp) — pins stay separated longer",
+        radiusDp = 24
+    ),
+    BALANCED(
+        id = "balanced",
+        displayName = "Balanced",
+        subtitle = "Optimal radius (38dp) — standard grouping (Default)",
+        radiusDp = 38
+    ),
+    SPREAD(
+        id = "spread",
+        displayName = "Spread",
+        subtitle = "Large radius (56dp) — groups distant pins aggressively",
+        radiusDp = 56
+    );
+
+    companion object {
+        fun fromId(id: String): MapClusteringMode = entries.firstOrNull { it.id == id } ?: BALANCED
+    }
+}
+
 data class CompassThemeColors(
     val background: Color,
     val surface: Color,

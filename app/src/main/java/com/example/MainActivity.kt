@@ -44,36 +44,60 @@ class MainActivity : ComponentActivity() {
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val currentRoute = navBackStackEntry?.destination?.route
 
-                // Streamlined 5 primary bottom navigation destinations (reduced from 8 to remove clutter)
-                val primaryBottomNavItems = listOf(
-                    Screen.Now,
-                    Screen.Find,
-                    Screen.Ask,
-                    Screen.Day,
-                    Screen.Ebt
-                )
+                // Dynamic bottom navigation destinations from user configuration
+                val configuredNavRoutes = viewModel.bottomNavItems.value
+                val allScreensMap = remember {
+                    mapOf(
+                        Screen.Now.route to Screen.Now,
+                        Screen.Find.route to Screen.Find,
+                        Screen.Map.route to Screen.Map,
+                        Screen.Ask.route to Screen.Ask,
+                        Screen.Day.route to Screen.Day,
+                        Screen.Ebt.route to Screen.Ebt,
+                        Screen.Info.route to Screen.Info,
+                        Screen.Add.route to Screen.Add
+                    )
+                }
+                val primaryBottomNavItems = remember(configuredNavRoutes) {
+                    configuredNavRoutes.mapNotNull { allScreensMap[it] }.ifEmpty {
+                        listOf(Screen.Now, Screen.Find, Screen.Ask, Screen.Day, Screen.Ebt)
+                    }
+                }
 
-                val isPrimaryTab = currentRoute in listOf(
-                    Screen.Now.route,
-                    Screen.Find.route,
-                    Screen.Ask.route,
-                    Screen.Day.route,
-                    Screen.Ebt.route
-                ) || currentRoute?.startsWith("find") == true
+                // Initial Startup Screen Handling
+                val startupScreen = viewModel.startupScreenRoute.value
+                var hasNavigatedToStartup by remember { mutableStateOf(false) }
+                LaunchedEffect(startupScreen) {
+                    if (!hasNavigatedToStartup && startupScreen.isNotBlank() && startupScreen != Screen.Now.route) {
+                        hasNavigatedToStartup = true
+                        navController.navigate(startupScreen) {
+                            popUpTo(Screen.Now.route) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    }
+                }
+
+                val isPrimaryTab = currentRoute in primaryBottomNavItems.map { it.route } ||
+                        currentRoute?.startsWith("find") == true
+
+                val isMapScreen = currentRoute == Screen.Map.route || currentRoute?.startsWith("map") == true
 
                 val isSubScreen = currentRoute in listOf(
                     Screen.Add.route,
                     Screen.Info.route,
                     Screen.Settings.route
-                )
+                ) || (isMapScreen && !configuredNavRoutes.contains(Screen.Map.route))
 
                 val isDetailScreen = currentRoute?.startsWith("detail") == true
 
                 Scaffold(
                     containerColor = theme.background,
                     topBar = {
-                        // Show unified top app bar on primary screens and sub-screens (Detail screen has its own top header)
-                        if (!isDetailScreen) {
+                        // Top bar is hidden on fullscreen Map & Detail screens as they have dedicated internal overlay headers
+                        if (!isDetailScreen && !isMapScreen) {
                             TopAppBar(
                                 title = {
                                     if (isSubScreen) {
@@ -140,6 +164,21 @@ class MainActivity : ComponentActivity() {
                                 },
                                 actions = {
                                     if (!isSubScreen) {
+                                        // Top Bar Map Quick Shortcut Button
+                                        IconButton(
+                                            onClick = {
+                                                if (currentRoute != Screen.Map.route) {
+                                                    navController.navigate(Screen.Map.route)
+                                                }
+                                            },
+                                            modifier = Modifier.testTag("top_nav_map_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Map,
+                                                contentDescription = "Open City Map",
+                                                tint = theme.accent
+                                            )
+                                        }
                                         // Moved Info icon here to unclutter bottom bar
                                         IconButton(
                                             onClick = {
@@ -210,8 +249,8 @@ class MainActivity : ComponentActivity() {
                         }
                     },
                     bottomBar = {
-                        // Display clean 5-item bottom bar only on primary browsing destinations
-                        if (isPrimaryTab) {
+                        // Display clean 5-item bottom bar on primary browsing destinations and map screen
+                        if (isPrimaryTab || isMapScreen) {
                             NavigationBar(
                                 containerColor = theme.surface,
                                 tonalElevation = 6.dp,
@@ -220,8 +259,11 @@ class MainActivity : ComponentActivity() {
                                     .height(70.dp)
                             ) {
                                 primaryBottomNavItems.forEach { screen ->
-                                    val isSelected = currentRoute == screen.route || 
-                                            (screen == Screen.Find && currentRoute?.startsWith("find") == true)
+                                    val isSelected = when (screen) {
+                                        Screen.Find -> currentRoute == Screen.Find.route || currentRoute?.startsWith("find") == true
+                                        Screen.Map -> currentRoute == Screen.Map.route || currentRoute?.startsWith("map") == true
+                                        else -> currentRoute == screen.route
+                                    }
                                     
                                     NavigationBarItem(
                                         selected = isSelected,
@@ -281,6 +323,9 @@ class MainActivity : ComponentActivity() {
                                     onNavigateToFind = { cat ->
                                         navController.navigate("find?category=$cat")
                                     },
+                                    onNavigateToMap = {
+                                        navController.navigate(Screen.Map.route)
+                                    },
                                     onNavigateToDetail = { id ->
                                         navController.navigate("detail/$id")
                                     }
@@ -300,6 +345,9 @@ class MainActivity : ComponentActivity() {
                                 FindScreen(
                                     viewModel = viewModel,
                                     initialCategory = category,
+                                    onNavigateToMap = { cat ->
+                                        navController.navigate("map?category=$cat")
+                                    },
                                     onNavigateToDetail = { id ->
                                         navController.navigate("detail/$id")
                                     }
@@ -311,8 +359,57 @@ class MainActivity : ComponentActivity() {
                                 FindScreen(
                                     viewModel = viewModel,
                                     initialCategory = "all",
+                                    onNavigateToMap = { cat ->
+                                        navController.navigate("map?category=$cat")
+                                    },
                                     onNavigateToDetail = { id ->
                                         navController.navigate("detail/$id")
+                                    }
+                                )
+                            }
+
+                            // Dedicated Map Screen with optional category argument
+                            composable(
+                                route = "map?category={category}",
+                                arguments = listOf(
+                                    navArgument("category") {
+                                        type = NavType.StringType
+                                        defaultValue = "all"
+                                    }
+                                )
+                            ) { backStackEntry ->
+                                val category = backStackEntry.arguments?.getString("category") ?: "all"
+                                MapScreen(
+                                    viewModel = viewModel,
+                                    initialCategory = category,
+                                    onNavigateBack = {
+                                        navController.popBackStack()
+                                    },
+                                    onNavigateToDetail = { id ->
+                                        navController.navigate("detail/$id")
+                                    },
+                                    onNavigateToFind = { cat ->
+                                        navController.navigate("find?category=$cat") {
+                                            popUpTo(Screen.Find.route) { inclusive = true }
+                                        }
+                                    }
+                                )
+                            }
+
+                            composable(Screen.Map.route) {
+                                MapScreen(
+                                    viewModel = viewModel,
+                                    initialCategory = "all",
+                                    onNavigateBack = {
+                                        navController.popBackStack()
+                                    },
+                                    onNavigateToDetail = { id ->
+                                        navController.navigate("detail/$id")
+                                    },
+                                    onNavigateToFind = { cat ->
+                                        navController.navigate("find?category=$cat") {
+                                            popUpTo(Screen.Find.route) { inclusive = true }
+                                        }
                                     }
                                 )
                             }

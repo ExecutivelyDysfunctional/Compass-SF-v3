@@ -32,6 +32,7 @@ sealed class Screen(
 ) {
     object Now : Screen("now", "Now", "🧭", Icons.Filled.Explore, Icons.Outlined.Explore)
     object Find : Screen("find", "Find", "🔎", Icons.Filled.Search, Icons.Outlined.Search)
+    object Map : Screen("map", "Map", "🗺️", Icons.Filled.Map, Icons.Outlined.Map)
     object Ask : Screen("ask", "Ask AI", "💬", Icons.Filled.AutoAwesome, Icons.Outlined.AutoAwesome)
     object Day : Screen("day", "Day", "🗓️", Icons.Filled.Checklist, Icons.Outlined.Checklist)
     object Ebt : Screen("ebt", "EBT", "💳", Icons.Filled.CreditCard, Icons.Outlined.CreditCard)
@@ -77,6 +78,26 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val currentFontScale = mutableStateOf(AppFontScale.STANDARD)
     val highContrastEnabled = mutableStateOf(false)
     val compactListingEnabled = mutableStateOf(false)
+
+    // --- Navigation & Workspace Config UI State (Chunk 1) ---
+    val startupScreenRoute = mutableStateOf("now")
+    val bottomNavItems = mutableStateOf(listOf("now", "find", "ask", "day", "ebt"))
+    val defaultNeighborhoodAnchorId = mutableStateOf("tenderloin")
+
+    // --- Map & Cartography Controls UI State (Chunk 2) ---
+    val mapLayerTransit = mutableStateOf(true)
+    val mapLayerNeighborhoods = mutableStateOf(true)
+    val mapLayerLandmarks = mutableStateOf(true)
+    val mapClusteringMode = mutableStateOf(MapClusteringMode.BALANCED)
+    val mapReducedMotion = mutableStateOf(false)
+
+    // --- Search, Accessibility & Demographic Presets UI State (Chunk 3) ---
+    val demographicPresets = mutableStateOf<Set<DemographicPreset>>(emptySet())
+    val accessibilityMobilityMode = mutableStateOf(false)
+    val dietaryPresets = mutableStateOf<Set<DietaryPreset>>(emptySet())
+
+    val hasActivePresets: Boolean
+        get() = demographicPresets.value.isNotEmpty() || accessibilityMobilityMode.value || dietaryPresets.value.isNotEmpty()
 
     // --- Location & Distance Sorting UI State ---
     val userLocation = mutableStateOf<UserLocation?>(null)
@@ -130,10 +151,60 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                 compactListingEnabled.value = it.toBooleanStrictOrNull() ?: false
             }
 
+            // Load Workspace & Navigation Preferences
+            val savedStartup = repository.getSetting("startup_screen") ?: "now"
+            startupScreenRoute.value = savedStartup
+
+            val savedNavItems = repository.getSetting("bottom_nav_items")
+            if (!savedNavItems.isNullOrBlank()) {
+                val parsed = savedNavItems.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                if (parsed.size in 2..6) {
+                    bottomNavItems.value = parsed
+                }
+            }
+
+            val savedDefaultAnchor = repository.getSetting("default_neighborhood_anchor") ?: "tenderloin"
+            defaultNeighborhoodAnchorId.value = savedDefaultAnchor
+
+            // Load Map & Cartography Preferences (Chunk 2)
+            repository.getSetting("map_layer_transit")?.let {
+                mapLayerTransit.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("map_layer_neighborhoods")?.let {
+                mapLayerNeighborhoods.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("map_layer_landmarks")?.let {
+                mapLayerLandmarks.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("map_clustering_mode")?.let {
+                mapClusteringMode.value = MapClusteringMode.fromId(it)
+            }
+            repository.getSetting("map_reduced_motion")?.let {
+                mapReducedMotion.value = it.toBooleanStrictOrNull() ?: false
+            }
+
+            // Load Search, Accessibility & Demographic Presets (Chunk 3)
+            repository.getSetting("demographic_presets")?.let { raw ->
+                if (raw.isNotBlank()) {
+                    val parsed = raw.split(",").mapNotNull { DemographicPreset.fromId(it.trim()) }.toSet()
+                    demographicPresets.value = parsed
+                }
+            }
+            repository.getSetting("accessibility_mobility_mode")?.let {
+                accessibilityMobilityMode.value = it.toBooleanStrictOrNull() ?: false
+            }
+            repository.getSetting("dietary_presets")?.let { raw ->
+                if (raw.isNotBlank()) {
+                    val parsed = raw.split(",").mapNotNull { DietaryPreset.fromId(it.trim()) }.toSet()
+                    dietaryPresets.value = parsed
+                }
+            }
+
             val locType = repository.getSetting("location_type") ?: "none"
             val savedAnchorId = repository.getSetting("selected_anchor_id")
-            if (locType == "anchor" && !savedAnchorId.isNullOrBlank()) {
-                val anchor = LocationHelper.NEIGHBORHOOD_ANCHORS.find { it.id == savedAnchorId }
+            val targetAnchorId = if (!savedAnchorId.isNullOrBlank()) savedAnchorId else savedDefaultAnchor
+            if (locType == "anchor" && targetAnchorId.isNotBlank()) {
+                val anchor = LocationHelper.NEIGHBORHOOD_ANCHORS.find { it.id == targetAnchorId }
                 if (anchor != null) {
                     userLocation.value = UserLocation(
                         latitude = anchor.latitude,
@@ -572,6 +643,184 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             repository.saveSetting("font_scale", AppFontScale.STANDARD.id)
             repository.saveSetting("high_contrast", "false")
             repository.saveSetting("compact_listing", "false")
+        }
+    }
+
+    // --- Navigation & Workspace Configuration Actions (Chunk 1) ---
+
+    fun setStartupScreen(route: String) {
+        startupScreenRoute.value = route
+        viewModelScope.launch {
+            repository.saveSetting("startup_screen", route)
+        }
+    }
+
+    fun toggleBottomNavItem(route: String) {
+        val current = bottomNavItems.value.toMutableList()
+        if (current.contains(route)) {
+            // Must keep at least 2 navigation items
+            if (current.size > 2) {
+                current.remove(route)
+            }
+        } else {
+            // Cap at 6 maximum to preserve touch targets
+            if (current.size < 6) {
+                current.add(route)
+            }
+        }
+        bottomNavItems.value = current
+        viewModelScope.launch {
+            repository.saveSetting("bottom_nav_items", current.joinToString(","))
+        }
+    }
+
+    fun moveBottomNavItem(route: String, direction: Int) {
+        val current = bottomNavItems.value.toMutableList()
+        val index = current.indexOf(route)
+        if (index == -1) return
+        val targetIndex = index + direction
+        if (targetIndex in current.indices) {
+            current.removeAt(index)
+            current.add(targetIndex, route)
+            bottomNavItems.value = current
+            viewModelScope.launch {
+                repository.saveSetting("bottom_nav_items", current.joinToString(","))
+            }
+        }
+    }
+
+    fun setDefaultNeighborhoodAnchor(anchorId: String) {
+        defaultNeighborhoodAnchorId.value = anchorId
+        viewModelScope.launch {
+            repository.saveSetting("default_neighborhood_anchor", anchorId)
+        }
+        // If current location is an anchor, update to the new anchor
+        val anchor = LocationHelper.NEIGHBORHOOD_ANCHORS.find { it.id == anchorId }
+        if (anchor != null && userLocation.value?.isManualAnchor == true) {
+            setNeighborhoodAnchor(anchor)
+        }
+    }
+
+    fun resetWorkspaceNavigationToDefaults() {
+        startupScreenRoute.value = "now"
+        bottomNavItems.value = listOf("now", "find", "ask", "day", "ebt")
+        defaultNeighborhoodAnchorId.value = "tenderloin"
+        viewModelScope.launch {
+            repository.saveSetting("startup_screen", "now")
+            repository.saveSetting("bottom_nav_items", "now,find,ask,day,ebt")
+            repository.saveSetting("default_neighborhood_anchor", "tenderloin")
+        }
+    }
+
+    // --- Map & Cartography Configuration Actions (Chunk 2) ---
+
+    fun toggleMapLayerTransit(enabled: Boolean) {
+        mapLayerTransit.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("map_layer_transit", enabled.toString())
+        }
+    }
+
+    fun toggleMapLayerNeighborhoods(enabled: Boolean) {
+        mapLayerNeighborhoods.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("map_layer_neighborhoods", enabled.toString())
+        }
+    }
+
+    fun toggleMapLayerLandmarks(enabled: Boolean) {
+        mapLayerLandmarks.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("map_layer_landmarks", enabled.toString())
+        }
+    }
+
+    fun selectMapClusteringMode(mode: MapClusteringMode) {
+        mapClusteringMode.value = mode
+        viewModelScope.launch {
+            repository.saveSetting("map_clustering_mode", mode.id)
+        }
+    }
+
+    fun toggleMapReducedMotion(enabled: Boolean) {
+        mapReducedMotion.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("map_reduced_motion", enabled.toString())
+        }
+    }
+
+    fun resetMapSettingsToDefaults() {
+        mapLayerTransit.value = true
+        mapLayerNeighborhoods.value = true
+        mapLayerLandmarks.value = true
+        mapClusteringMode.value = MapClusteringMode.BALANCED
+        mapReducedMotion.value = false
+        viewModelScope.launch {
+            repository.saveSetting("map_layer_transit", "true")
+            repository.saveSetting("map_layer_neighborhoods", "true")
+            repository.saveSetting("map_layer_landmarks", "true")
+            repository.saveSetting("map_clustering_mode", MapClusteringMode.BALANCED.id)
+            repository.saveSetting("map_reduced_motion", "false")
+        }
+    }
+
+    // --- Search, Accessibility & Demographic Presets Actions (Chunk 3) ---
+
+    fun toggleDemographicPreset(preset: DemographicPreset) {
+        val current = demographicPresets.value.toMutableSet()
+        if (current.contains(preset)) {
+            current.remove(preset)
+        } else {
+            current.add(preset)
+        }
+        demographicPresets.value = current
+        viewModelScope.launch {
+            repository.saveSetting("demographic_presets", current.joinToString(",") { it.id })
+        }
+    }
+
+    fun setDemographicPresets(presets: Set<DemographicPreset>) {
+        demographicPresets.value = presets
+        viewModelScope.launch {
+            repository.saveSetting("demographic_presets", presets.joinToString(",") { it.id })
+        }
+    }
+
+    fun toggleAccessibilityMobilityMode(enabled: Boolean) {
+        accessibilityMobilityMode.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("accessibility_mobility_mode", enabled.toString())
+        }
+    }
+
+    fun toggleDietaryPreset(preset: DietaryPreset) {
+        val current = dietaryPresets.value.toMutableSet()
+        if (current.contains(preset)) {
+            current.remove(preset)
+        } else {
+            current.add(preset)
+        }
+        dietaryPresets.value = current
+        viewModelScope.launch {
+            repository.saveSetting("dietary_presets", current.joinToString(",") { it.id })
+        }
+    }
+
+    fun setDietaryPresets(presets: Set<DietaryPreset>) {
+        dietaryPresets.value = presets
+        viewModelScope.launch {
+            repository.saveSetting("dietary_presets", presets.joinToString(",") { it.id })
+        }
+    }
+
+    fun clearAllPresets() {
+        demographicPresets.value = emptySet()
+        accessibilityMobilityMode.value = false
+        dietaryPresets.value = emptySet()
+        viewModelScope.launch {
+            repository.saveSetting("demographic_presets", "")
+            repository.saveSetting("accessibility_mobility_mode", "false")
+            repository.saveSetting("dietary_presets", "")
         }
     }
 

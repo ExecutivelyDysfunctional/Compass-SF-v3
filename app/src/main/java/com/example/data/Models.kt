@@ -276,3 +276,163 @@ data class ImportResult(
     val tasksRestored: Int,
     val customPlacesRestored: Int
 )
+
+// --- Search, Accessibility & Demographic Presets (Chunk 3) ---
+
+@Serializable
+enum class DemographicPreset(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val icon: String,
+    val keywords: List<String>
+) {
+    YOUTH(
+        id = "youth",
+        title = "Youth & Young Adults",
+        subtitle = "TAY under 25, drop-ins, shelters & education",
+        icon = "🎒",
+        keywords = listOf("youth", "tay", "young adult", "under 25", "transitional age", "larkin", "huckleberry", "lyric", "3rd street", "teen", "student")
+    ),
+    SENIORS(
+        id = "seniors",
+        title = "Seniors & Elders (60+)",
+        subtitle = "Aging & adult services, senior dining & care",
+        icon = "🧓",
+        keywords = listOf("senior", "seniors", "elder", "elders", "60+", "aging", "adult day", "curry senior", "older adult", "golden gate senior")
+    ),
+    FAMILIES(
+        id = "families",
+        title = "Families with Children",
+        subtitle = "Parents, children, family shelters & diaper banks",
+        icon = "👨‍👩‍👧",
+        keywords = listOf("family", "families", "children", "kids", "compass family", "hamilton family", "parent", "parents", "pregnant", "infant", "diaper", "child")
+    ),
+    VETERANS(
+        id = "veterans",
+        title = "Veterans",
+        subtitle = "VA benefits, veteran housing & legal support",
+        icon = "🎖️",
+        keywords = listOf("veteran", "veterans", "va ", "military", "vet", "swords to plowshares", "vfw", "american legion")
+    ),
+    LGBTQ(
+        id = "lgbtq",
+        title = "LGBTQ+ Focused",
+        subtitle = "Trans, queer, non-binary & affirming safe spaces",
+        icon = "🏳️‍🌈",
+        keywords = listOf("lgbtq", "lgbt", "trans", "transgender", "queer", "gay", "lesbian", "lyric", "san francisco aids foundation", "strut", "sfaf", "sf lagc", "api wellness")
+    ),
+    WOMEN_NB(
+        id = "women_nb",
+        title = "Women / Non-binary Only",
+        subtitle = "Women's drop-ins, shelters, maternal care & DV support",
+        icon = "👩",
+        keywords = listOf("women", "woman", "non-binary", "female", "mary elizabeth", "wrc", "women's resource center", "rose", "domestic violence", "dv", "maternal", "mothers")
+    );
+
+    companion object {
+        fun fromId(id: String): DemographicPreset? = entries.find { it.id.equals(id, ignoreCase = true) }
+    }
+}
+
+@Serializable
+enum class DietaryPreset(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val icon: String,
+    val keywords: List<String>
+) {
+    HALAL(
+        id = "halal",
+        title = "Halal",
+        subtitle = "Certified Halal meals, pantries & Middle Eastern / Mediterranean",
+        icon = "🥩",
+        keywords = listOf("halal", "muslim", "middle eastern", "mediterranean", "kabob", "falafel", "shawarma", "islamic")
+    ),
+    VEG_VEGAN(
+        id = "veg_vegan",
+        title = "Vegetarian / Vegan",
+        subtitle = "Plant-based dining, meatless meals & fresh produce pantries",
+        icon = "🥗",
+        keywords = listOf("vegetarian", "vegan", "plant-based", "meatless", "produce", "salad", "veggie", "vegetable", "fruit", "beans", "groceries")
+    ),
+    KOSHER(
+        id = "kosher",
+        title = "Kosher",
+        subtitle = "Certified Kosher meals, delis & Jewish community food services",
+        icon = "🥯",
+        keywords = listOf("kosher", "jewish", "jcc", "deli", "synagogue", "hebrew")
+    );
+
+    companion object {
+        fun fromId(id: String): DietaryPreset? = entries.find { it.id.equals(id, ignoreCase = true) }
+    }
+}
+
+object PresetMatcher {
+    private val ACCESSIBILITY_KEYWORDS = listOf(
+        "accessible", "wheelchair", "step-free", "ground floor", "ground-floor",
+        "elevator", "ramp", "ada", "mobility", "handicap", "flat entrance", "no stairs"
+    )
+
+    // Known central San Francisco community service sites with standard ground-floor / step-free street level entrances
+    private val KNOWN_ACCESSIBLE_NAMES = listOf(
+        "glide", "st. anthony", "mission neighborhood resource center", "sf-marin food bank",
+        "mother brown", "curry senior", "compass family", "swords to plowshares",
+        "hospitality house", "project open hand", "larkin street", "san francisco public library",
+        "subway", "taco bell", "el farolito", "mc donald", "mcdonald", "carl's jr", "denny", "jack in the box"
+    )
+
+    fun matchesDemographic(resource: Resource, selectedPresets: Set<DemographicPreset>): Boolean {
+        if (selectedPresets.isEmpty()) return true
+        val fullText = "${resource.name} ${resource.summary} ${resource.description} ${resource.eligibility} ${resource.tags.joinToString(" ")} ${resource.requirements.joinToString(" ")} ${resource.alsoOffers.joinToString(" ")}".lowercase()
+        return selectedPresets.any { preset ->
+            preset.keywords.any { kw -> fullText.contains(kw.lowercase()) }
+        }
+    }
+
+    fun matchesAccessibility(resource: Resource, mobilityModeEnabled: Boolean): Boolean {
+        if (!mobilityModeEnabled) return true
+        if (resource.phoneLine) return true
+
+        val fullText = "${resource.name} ${resource.summary} ${resource.description} ${resource.requirements.joinToString(" ")} ${resource.tags.joinToString(" ")} ${resource.eligibility}".lowercase()
+        val hasExplicitKeyword = ACCESSIBILITY_KEYWORDS.any { kw -> fullText.contains(kw) }
+        val isKnownAccessible = KNOWN_ACCESSIBLE_NAMES.any { name -> resource.name.lowercase().contains(name) }
+        
+        // Return true if explicitly marked accessible, or known ground-floor street access
+        return hasExplicitKeyword || isKnownAccessible || resource.tags.any { it.equals("accessible", ignoreCase = true) }
+    }
+
+    fun matchesDietary(resource: Resource, selectedDietary: Set<DietaryPreset>): Boolean {
+        if (selectedDietary.isEmpty()) return true
+        val fullText = "${resource.name} ${resource.summary} ${resource.description} ${resource.tags.joinToString(" ")} ${resource.requirements.joinToString(" ")}".lowercase()
+        return selectedDietary.any { preset ->
+            preset.keywords.any { kw -> fullText.contains(kw.lowercase()) }
+        }
+    }
+
+    fun matchesRmpDemographic(location: RmpLocation, selectedPresets: Set<DemographicPreset>): Boolean {
+        if (selectedPresets.isEmpty()) return true
+        val fullText = "${location.name} ${location.notes} ${location.tips} ${location.cuisine} ${location.neighborhood}".lowercase()
+        return selectedPresets.any { preset ->
+            preset.keywords.any { kw -> fullText.contains(kw.lowercase()) }
+        }
+    }
+
+    fun matchesRmpAccessibility(location: RmpLocation, mobilityModeEnabled: Boolean): Boolean {
+        if (!mobilityModeEnabled) return true
+        val fullText = "${location.name} ${location.notes} ${location.tips} ${location.address}".lowercase()
+        val hasKeyword = ACCESSIBILITY_KEYWORDS.any { kw -> fullText.contains(kw) }
+        val isKnownAccessible = KNOWN_ACCESSIBLE_NAMES.any { name -> location.name.lowercase().contains(name) }
+        return hasKeyword || isKnownAccessible || location.chain // Chain stores almost universally have ADA ground-level entrances
+    }
+
+    fun matchesRmpDietary(location: RmpLocation, selectedDietary: Set<DietaryPreset>): Boolean {
+        if (selectedDietary.isEmpty()) return true
+        val fullText = "${location.name} ${location.cuisine} ${location.notes} ${location.tips}".lowercase()
+        return selectedDietary.any { preset ->
+            preset.keywords.any { kw -> fullText.contains(kw.lowercase()) }
+        }
+    }
+}
