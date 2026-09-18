@@ -6,6 +6,9 @@
 ---
 
 ## [Implemented]
+- **Deterministic Debug APK Naming**:
+  - Configured Gradle Kotlin DSL task in `app/build.gradle.kts` to output the debug APK as `debug-compass-sf.apk`.
+  - Automatically triggers on `./gradlew assembleDebug` and `./gradlew assemble` builds, placing the final artifact at `app/build/outputs/apk/debug/debug-compass-sf.apk` without modifying release build settings.
 - **CI/CD Canonical Workflow & Credential Hardening**:
   - Consolidated all workflow files into a single, clean `.github/workflows/build-apk.yml`.
   - Resolved `sdkmanager` failure by explicitly configuring modern, non-obsolete SDK packages (`platform-tools`, `platforms;android-36`, `build-tools;36.0.0`) in `android-actions/setup-android@v3` and preventing obsolete `tools` package resolution.
@@ -14,6 +17,12 @@
   - Configured least-privilege `contents: read` permissions and concurrency run cancellation.
   - Hardened credential security: removed hardcoded fallback API keys in `app/build.gradle.kts` and `AiService.kt`, strictly sourcing `GEMINI_API_KEY` from environment / GitHub repository secrets with graceful offline fallback.
 - **Settings & Modularity (Chunk 3)**: Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+), mobility/wheelchair accessibility priority toggle, and dietary filter presets (Halal, Vegetarian, Kosher). All fully wired into Find, EBT, Now, and Map screens.
+- **AI Navigator Preferences & Customization Foundation (Chunk 4 - Stage 1)**:
+  - Strongly typed Kotlin models in `Models.kt`: `AiResponseStyle` (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), `AiConnectionMode` (Automatic, Offline Only), and `AiPreferences` with safe defaults.
+  - Zero-schema-breaking Room persistence using the established `app_settings` key-value entity with string-based serialization, case-insensitive trimmed decoding, and default fallbacks.
+  - Asynchronous, lifecycle-safe repository accessors and `CompassViewModel` state properties (`aiPreferences`, `setAiResponseStyle`, `setAiConnectionMode`, `toggleAiIncludeStreetTips`, `toggleAiIncludeEligibilityDetails`, `resetAiPreferencesToDefaults`).
+  - Unit test suite in `app/src/test/java/com/example/data/AiPreferencesTest.kt` verifying default values, valid parsing, fallback resilience, serialization roundtrips, and reset behaviors.
+
 - **Now Screen (Today's Navigator Dashboard)**:
   - Time-of-day greeting ("Good morning", "Good afternoon", "Good evening, traveler") with subtitle.
   - Quick Category shortcut pills (Food, Shelter, Hygiene, Connect, EBT/Benefits, Medical) routing to Find tab with preset filter.
@@ -138,6 +147,8 @@
 - `app/src/main/java/com/example/ui/Theme.kt` - Custom M3 theming system, theme modes, accent palettes, and typography scaling
 - `app/src/main/java/com/example/data/LocationHelper.kt` - 100% on-device Haversine proximity calculations and SF neighborhood anchor resolution
 - `app/src/main/java/com/example/data/Models.kt` - Room entities, data transfer objects, and JSON converters
+- `ACTION_LOG.md` - Chronological log of stage-by-stage implementation milestones
+- `app/src/test/java/com/example/data/AiPreferencesTest.kt` - Unit tests for AI preferences, enum parsing, safe fallbacks, and serialization
 - `app/src/main/java/com/example/data/Database.kt` - Room Database definition and ResourceDao interface
 - `app/src/main/java/com/example/data/Repository.kt` - CompassRepository data access layer and DB seeding logic
 - `app/src/main/java/com/example/data/AiService.kt` - Gemini 3.5 Flash REST client, structured parsing, and offline fallbacks

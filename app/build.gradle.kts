@@ -53,6 +53,34 @@ android {
     }
 }
 
+val renameDebugApk = tasks.register("renameDebugApk") {
+    description = "Renames the generated debug APK to debug-compass-sf.apk"
+    val debugOutputDir = layout.buildDirectory.dir("outputs/apk/debug")
+
+    doLast {
+        val dir = debugOutputDir.get().asFile
+        if (dir.exists()) {
+            val targetFile = File(dir, "debug-compass-sf.apk")
+            val apkFiles = dir.listFiles { file ->
+                file.extension == "apk" && file.name != "debug-compass-sf.apk"
+            }
+            apkFiles?.forEach { apkFile ->
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+                if (!apkFile.renameTo(targetFile)) {
+                    apkFile.copyTo(targetFile, overwrite = true)
+                    apkFile.delete()
+                }
+            }
+        }
+    }
+}
+
+tasks.matching { it.name == "packageDebug" || it.name == "assembleDebug" }.configureEach {
+    finalizedBy(renameDebugApk)
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")

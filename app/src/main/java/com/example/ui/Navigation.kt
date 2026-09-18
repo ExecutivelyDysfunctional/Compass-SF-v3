@@ -99,6 +99,9 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val hasActivePresets: Boolean
         get() = demographicPresets.value.isNotEmpty() || accessibilityMobilityMode.value || dietaryPresets.value.isNotEmpty()
 
+    // --- AI Navigator Customization & Preferences UI State (Chunk 4) ---
+    val aiPreferences = mutableStateOf(AiPreferences.DEFAULT)
+
     // --- Location & Distance Sorting UI State ---
     val userLocation = mutableStateOf<UserLocation?>(null)
     val isLocating = mutableStateOf(false)
@@ -199,6 +202,9 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                     dietaryPresets.value = parsed
                 }
             }
+
+            // Load AI Navigator Customization & Preferences (Chunk 4)
+            aiPreferences.value = repository.getAiPreferences()
 
             val locType = repository.getSetting("location_type") ?: "none"
             val savedAnchorId = repository.getSetting("selected_anchor_id")
@@ -821,6 +827,47 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             repository.saveSetting("demographic_presets", "")
             repository.saveSetting("accessibility_mobility_mode", "false")
             repository.saveSetting("dietary_presets", "")
+        }
+    }
+
+    // --- AI Navigator Customization Actions (Chunk 4) ---
+
+    fun setAiResponseStyle(style: AiResponseStyle) {
+        val updated = aiPreferences.value.copy(responseStyle = style)
+        aiPreferences.value = updated
+        viewModelScope.launch {
+            repository.setAiResponseStyle(style)
+        }
+    }
+
+    fun setAiConnectionMode(mode: AiConnectionMode) {
+        val updated = aiPreferences.value.copy(connectionMode = mode)
+        aiPreferences.value = updated
+        viewModelScope.launch {
+            repository.setAiConnectionMode(mode)
+        }
+    }
+
+    fun toggleAiIncludeStreetTips(enabled: Boolean) {
+        val updated = aiPreferences.value.copy(includeStreetTips = enabled)
+        aiPreferences.value = updated
+        viewModelScope.launch {
+            repository.setAiIncludeStreetTips(enabled)
+        }
+    }
+
+    fun toggleAiIncludeEligibilityDetails(enabled: Boolean) {
+        val updated = aiPreferences.value.copy(includeEligibilityDetails = enabled)
+        aiPreferences.value = updated
+        viewModelScope.launch {
+            repository.setAiIncludeEligibilityDetails(enabled)
+        }
+    }
+
+    fun resetAiPreferencesToDefaults() {
+        aiPreferences.value = AiPreferences.DEFAULT
+        viewModelScope.launch {
+            repository.resetAiPreferences()
         }
     }
 

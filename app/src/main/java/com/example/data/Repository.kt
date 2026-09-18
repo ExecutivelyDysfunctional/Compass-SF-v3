@@ -115,6 +115,56 @@ class CompassRepository(private val dao: ResourceDao) {
         dao.insertSetting(AppSetting(key, value))
     }
 
+    // --- AI Navigator Preferences (Chunk 4) ---
+
+    suspend fun getAiPreferences(): AiPreferences = withContext(Dispatchers.IO) {
+        val styleId = getSetting(SETTING_AI_RESPONSE_STYLE)
+        val modeId = getSetting(SETTING_AI_CONNECTION_MODE)
+        val tips = getSetting(SETTING_AI_INCLUDE_TIPS)
+        val eligibility = getSetting(SETTING_AI_INCLUDE_ELIGIBILITY)
+
+        AiPreferences(
+            responseStyle = AiResponseStyle.fromId(styleId),
+            connectionMode = AiConnectionMode.fromId(modeId),
+            includeStreetTips = tips?.toBooleanStrictOrNull() ?: true,
+            includeEligibilityDetails = eligibility?.toBooleanStrictOrNull() ?: true
+        )
+    }
+
+    suspend fun saveAiPreferences(prefs: AiPreferences) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_AI_RESPONSE_STYLE, prefs.responseStyle.id)
+        saveSetting(SETTING_AI_CONNECTION_MODE, prefs.connectionMode.id)
+        saveSetting(SETTING_AI_INCLUDE_TIPS, prefs.includeStreetTips.toString())
+        saveSetting(SETTING_AI_INCLUDE_ELIGIBILITY, prefs.includeEligibilityDetails.toString())
+    }
+
+    suspend fun setAiResponseStyle(style: AiResponseStyle) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_AI_RESPONSE_STYLE, style.id)
+    }
+
+    suspend fun setAiConnectionMode(mode: AiConnectionMode) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_AI_CONNECTION_MODE, mode.id)
+    }
+
+    suspend fun setAiIncludeStreetTips(enabled: Boolean) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_AI_INCLUDE_TIPS, enabled.toString())
+    }
+
+    suspend fun setAiIncludeEligibilityDetails(enabled: Boolean) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_AI_INCLUDE_ELIGIBILITY, enabled.toString())
+    }
+
+    suspend fun resetAiPreferences() = withContext(Dispatchers.IO) {
+        saveAiPreferences(AiPreferences.DEFAULT)
+    }
+
+    companion object {
+        const val SETTING_AI_RESPONSE_STYLE = "ai_response_style"
+        const val SETTING_AI_CONNECTION_MODE = "ai_connection_mode"
+        const val SETTING_AI_INCLUDE_TIPS = "ai_include_tips"
+        const val SETTING_AI_INCLUDE_ELIGIBILITY = "ai_include_eligibility"
+    }
+
     suspend fun insertCapture(capture: Capture): Long = dao.insertCapture(capture)
     suspend fun updateCapture(capture: Capture) = dao.updateCapture(capture)
 

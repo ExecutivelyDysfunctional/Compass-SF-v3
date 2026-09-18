@@ -436,3 +436,78 @@ object PresetMatcher {
         }
     }
 }
+
+// --- AI Navigator Customization & Preferences (Chunk 4) ---
+
+@Serializable
+enum class AiResponseStyle(
+    val id: String,
+    val title: String,
+    val description: String,
+    val badge: String
+) {
+    QUICK_STREET_ACTION(
+        id = "quick_street_action",
+        title = "Quick Street Action",
+        description = "Concise, punchy 2-3 sentence directions with immediate next steps",
+        badge = "⚡ Fast"
+    ),
+    STEP_BY_STEP_GUIDE(
+        id = "step_by_step_guide",
+        title = "Step-by-Step Guide",
+        description = "Numbered chronological roadmap from arrival to intake",
+        badge = "📋 Actionable"
+    ),
+    COMPREHENSIVE_CASEWORKER(
+        id = "comprehensive_caseworker",
+        title = "Comprehensive Caseworker Mode",
+        description = "In-depth breakdown with document checklists, criteria, and alternative referrals",
+        badge = "💼 Detailed"
+    );
+
+    companion object {
+        val DEFAULT = QUICK_STREET_ACTION
+        fun fromId(id: String?): AiResponseStyle =
+            entries.find { it.id.equals(id?.trim(), ignoreCase = true) } ?: DEFAULT
+    }
+}
+
+@Serializable
+enum class AiConnectionMode(
+    val id: String,
+    val title: String,
+    val description: String,
+    val badge: String
+) {
+    AUTOMATIC(
+        id = "automatic",
+        title = "Automatic (Cloud + Offline Fallback)",
+        description = "Uses Gemini AI when online with API key; gracefully falls back to local database matchers",
+        badge = "✨ Auto"
+    ),
+    OFFLINE_ONLY(
+        id = "offline_only",
+        title = "Offline Only (Zero Data / Battery Saver)",
+        description = "Bypasses external network calls entirely, using local keyword matching and deterministic rules",
+        badge = "🛡️ Offline"
+    );
+
+    companion object {
+        val DEFAULT = AUTOMATIC
+        fun fromId(id: String?): AiConnectionMode =
+            entries.find { it.id.equals(id?.trim(), ignoreCase = true) } ?: DEFAULT
+    }
+}
+
+@Serializable
+data class AiPreferences(
+    val responseStyle: AiResponseStyle = AiResponseStyle.DEFAULT,
+    val connectionMode: AiConnectionMode = AiConnectionMode.DEFAULT,
+    val includeStreetTips: Boolean = true,
+    val includeEligibilityDetails: Boolean = true
+) {
+    companion object {
+        val DEFAULT = AiPreferences()
+    }
+}
+
