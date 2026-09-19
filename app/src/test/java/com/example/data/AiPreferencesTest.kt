@@ -1,5 +1,6 @@
 package com.example.data
 
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
@@ -303,5 +304,139 @@ class AiPreferencesTest {
         assertTrue(caseResponse.nextSteps.any { it.contains("Primary Placement:") })
         assertTrue(caseResponse.nextSteps.any { it.contains("Intake & Eligibility:") })
         assertTrue(caseResponse.nextSteps.any { it.contains("Operational Advisory:") })
+    }
+
+    @Test
+    fun testAskAiOfflineModeEnforcement() = runBlocking {
+        val testResources = listOf(
+            Resource(
+                id = 42,
+                name = "Tenderloin Emergency Food Pantry",
+                category = "food",
+                summary = "Emergency food box distribution",
+                description = "Walk-in groceries for Tenderloin residents",
+                address = "201 Turk St",
+                neighborhood = "Tenderloin",
+                cost = "Free"
+            )
+        )
+
+        // Strict OFFLINE_ONLY connection mode must invoke offline runner without network calls
+        val response = AiService.askAi(
+            question = "Where can I get groceries in Tenderloin?",
+            resources = testResources,
+            neighborhoodFilter = "Tenderloin",
+            openNowFilter = false,
+            aiPreferences = AiPreferences(
+                responseStyle = AiResponseStyle.QUICK_STREET_ACTION,
+                connectionMode = AiConnectionMode.OFFLINE_ONLY
+            )
+        )
+
+        assertNotNull(response)
+        assertTrue(response.answer.startsWith("Offline Action:"))
+        assertEquals(1, response.picks.size)
+        assertEquals(42, response.picks.first().id)
+    }
+
+    @Test
+    fun testOfflineAskEmptyResourcesAndBlankQuestion() = runBlocking {
+        // Empty resource list must return graceful response without throwing exceptions
+        val emptyListResponse = AiService.runOfflineAsk(
+            question = "Where is shelter?",
+            resources = emptyList(),
+            neighborhoodFilter = "Mission",
+            openNowFilter = false,
+            aiPreferences = AiPreferences.DEFAULT
+        )
+
+        assertNotNull(emptyListResponse)
+        assertTrue(emptyListResponse.answer.contains("No matching San Francisco resources found") || emptyListResponse.answer.contains("Offline Action:"))
+        assertTrue(emptyListResponse.nextSteps.isNotEmpty())
+        assertTrue(emptyListResponse.picks.isEmpty())
+
+        // Blank question must also handle safely
+        val blankQuestionResponse = AiService.runOfflineAsk(
+            question = "   ",
+            resources = emptyList(),
+            aiPreferences = AiPreferences.DEFAULT
+        )
+        assertNotNull(blankQuestionResponse)
+    }
+
+    @Test
+    fun testOfflineRankingFiltersAndWeights() {
+        val resTenderloin = Resource(
+            id = 1,
+            name = "Tenderloin Meal Site",
+            category = "food",
+            neighborhood = "Tenderloin",
+            summary = "Hot meals daily",
+            tags = listOf("food", "meals")
+        )
+
+        val resMission = Resource(
+            id = 2,
+            name = "Mission Food Bank",
+            category = "food",
+            neighborhood = "Mission",
+            summary = "Pantry staples",
+            tags = listOf("food", "pantry")
+        )
+
+        val rankedTenderloin = AiService.rankLocalResources(
+            question = "food meals",
+            resources = listOf(resTenderloin, resMission),
+            neighborhoodFilter = "Tenderloin",
+            openNowFilter = false
+        )
+
+        assertTrue(rankedTenderloin.isNotEmpty())
+        // Tenderloin resource should score higher due to matching neighborhood filter (+10 vs -8)
+        assertEquals(1, rankedTenderloin.first().first.id)
+    }
+
+    @Test
+    fun testTogglesContentEnrichmentInOfflineResponse() {
+        val resourceWithTipsAndEligibility = Resource(
+            id = 10,
+            name = "St. Anthony Clinic",
+            category = "health",
+            neighborhood = "Tenderloin",
+            address = "150 Golden Gate Ave",
+            summary = "Free urgent care clinic",
+            requirements = listOf("SF Residency"),
+            bring = listOf("Photo ID"),
+            eligibility = "Uninsured SF residents",
+            aiTips = "Queue at 7:30 AM for morning drop-in numbers."
+        )
+
+        // Tips & Eligibility DISABLED
+        val disabledResponse = AiService.runOfflineAsk(
+            question = "I need medical help",
+            resources = listOf(resourceWithTipsAndEligibility),
+            aiPreferences = AiPreferences(
+                responseStyle = AiResponseStyle.QUICK_STREET_ACTION,
+                includeStreetTips = false,
+                includeEligibilityDetails = false
+            )
+        )
+
+        assertFalse(disabledResponse.picks.first().why.contains("Tip:"))
+        assertFalse(disabledResponse.nextSteps.any { it.contains("Bring:") || it.contains("Intake:") })
+
+        // Tips & Eligibility ENABLED
+        val enabledResponse = AiService.runOfflineAsk(
+            question = "I need medical help",
+            resources = listOf(resourceWithTipsAndEligibility),
+            aiPreferences = AiPreferences(
+                responseStyle = AiResponseStyle.QUICK_STREET_ACTION,
+                includeStreetTips = true,
+                includeEligibilityDetails = true
+            )
+        )
+
+        assertTrue(enabledResponse.picks.first().why.contains("Tip: Queue at 7:30 AM"))
+        assertTrue(enabledResponse.nextSteps.any { it.contains("Bring: Photo ID") || it.contains("Street Tip:") })
     }
 }

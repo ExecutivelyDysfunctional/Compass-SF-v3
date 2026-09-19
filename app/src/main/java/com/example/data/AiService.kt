@@ -74,6 +74,11 @@ data class Candidate(
 
 // --- Retrofit Setup ---
 
+/**
+ * Direct REST endpoint for Gemini API.
+ * Uses gemini-3.5-flash as the standard default model for basic text and structured Q&A tasks
+ * in accordance with the gemini-api skill standards.
+ */
 interface GeminiApiService {
     @POST("v1beta/models/gemini-3.5-flash:generateContent")
     suspend fun generateContent(

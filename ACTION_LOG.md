@@ -193,4 +193,34 @@ I have implemented **Stage 3 (Behavior & Integration Layer)** for **Chunk 4: AI 
   * `testOfflineAskStepByStepAndCaseworkerStyles`: Verifies structured milestone roadmaps and comprehensive caseworker assessments.
 * Ran and passed `gradle :app:testDebugUnitTest` and full app build via `compile_applet`.
 
+---
+
+# Action Log: Stage 4 (Verification & Hardening Pass for AI Navigator)
+
+I have completed the **Stage 4 Verification & Hardening Pass** for **Chunk 4: AI Navigator Customization** in Compass SF.
+
+---
+
+### 1. Build Verification & Unit Test Suite (`AiPreferencesTest.kt`)
+* Ran `./gradlew :app:testDebugUnitTest` and `compile_applet` — both completed with **BUILD SUCCESSFUL**.
+* Expanded unit test suite in `AiPreferencesTest.kt` with coroutine assertions (`runBlocking`):
+  * **`testAskAiOfflineModeEnforcement`**: Confirms `AiService.askAi()` with `AiConnectionMode.OFFLINE_ONLY` immediately routes to `runOfflineAsk()` without making network calls.
+  * **`testOfflineAskEmptyResourcesAndBlankQuestion`**: Confirms that empty resource lists or blank questions return graceful fallback responses without throwing exceptions or index bounds errors.
+  * **`testOfflineRankingFiltersAndWeights`**: Confirms that local keyword matching properly applies neighborhood proximity score weighting (+10 matching neighborhood, -8 non-matching) and open-now weighting (+15 open24/open hours, -10 closed).
+  * **`testTogglesContentEnrichmentInOfflineResponse`**: Confirms that `includeStreetTips` and `includeEligibilityDetails` toggles properly enable/disable tips and document requirements in offline response text and action steps.
+
+---
+
+### 2. Gemini Endpoint Inspection & Documentation (`AiService.kt`)
+* Inspected active model configuration `@POST("v1beta/models/gemini-3.5-flash:generateContent")` in `AiService.kt`.
+* Documented standard model selection rationale in code comments according to the `gemini-api` skill guidelines for basic text tasks and structured output generation.
+
+---
+
+### 3. Edge Case Hardening & Safety Controls
+* **Hallucination Protection**: Pick IDs returned from Gemini are strictly filtered against active database resource IDs; non-existent/hallucinated IDs are dropped, and if no valid IDs remain, safe ranked local resources are automatically substituted.
+* **Network & Key Failures**: In the event of missing API keys, network drops, or rate limit errors, Retrofit calls automatically catch exceptions and fall back to the multi-style offline engine (`runOfflineAsk()`) seamlessly.
+* **Corrupted Preferences Safety**: Handled unknown or invalid setting IDs in `Models.kt` (`fromId()`) and `Repository.kt`, falling back gracefully to `AiPreferences.DEFAULT` without breaking application startup or Room database queries.
+
+
 

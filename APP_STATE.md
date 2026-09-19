@@ -17,7 +17,7 @@
   - Configured least-privilege `contents: read` permissions and concurrency run cancellation.
   - Hardened credential security: removed hardcoded fallback API keys in `app/build.gradle.kts` and `AiService.kt`, strictly sourcing `GEMINI_API_KEY` from environment / GitHub repository secrets with graceful offline fallback.
 - **Settings & Modularity (Chunk 3)**: Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+), mobility/wheelchair accessibility priority toggle, and dietary filter presets (Halal, Vegetarian, Kosher). All fully wired into Find, EBT, Now, and Map screens.
-- **AI Navigator Preferences & Customization (Chunk 4 - Stages 1, 2, & 3 - COMPLETE)**:
+- **AI Navigator Preferences & Customization (Chunk 4 - FULLY VERIFIED & HARDENED)**:
   - **Data Models & Persistence (Stage 1)**: Strongly typed Kotlin models in `Models.kt` (`AiResponseStyle`, `AiConnectionMode`, `AiPreferences`), zero-migration key-value Room storage via `app_settings`, asynchronous repository methods, reactive `CompassViewModel` states, and unit test suite in `AiPreferencesTest.kt`.
   - **Settings UI Controls (Stage 2)**: Dedicated "SECTION 8" card in `SettingsScreen` (`Screens.kt`) with live guidance profile summary bar, AI Response Style radio selector (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), AI Connection Mode radio selector (Automatic, Offline Only), switches for "Include street-smart tips" and "Include eligibility details", reset to defaults button, and integration into the Quick Settings Index.
   - **Behavior, Prompt Customization & Offline Gating (Stage 3)**:
@@ -27,7 +27,11 @@
     - Style-aware offline fallback generator (`runOfflineAsk`) producing tailored action steps, milestone roadmaps, and intake/eligibility guidance.
     - Hallucination safeguard: validates Gemini pick IDs against database resources, falling back to top local ranked matches if invalid.
     - Live profile badge on `AskScreen` showing active guidance mode and connection status.
-    - Comprehensive unit test suite covering prompt builders and offline engine.
+  - **Verification & Hardening Pass (Stage 4)**:
+    - Expanded unit test suite (`AiPreferencesTest.kt`) verifying offline mode enforcement, empty/blank edge cases, score weighting for neighborhood and open-now filters, and toggle enablement.
+    - Verified build targets and unit test execution via `gradle :app:testDebugUnitTest` and `compile_applet`.
+    - Inspected and documented Gemini 3.5 Flash REST endpoint usage in `AiService.kt`.
+    - Validated hallucination protection, network failure fallback, and corrupted setting ID recovery.
 
 - **Now Screen (Today's Navigator Dashboard)**:
   - Time-of-day greeting ("Good morning", "Good afternoon", "Good evening, traveler") with subtitle.
