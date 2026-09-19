@@ -17,11 +17,9 @@
   - Configured least-privilege `contents: read` permissions and concurrency run cancellation.
   - Hardened credential security: removed hardcoded fallback API keys in `app/build.gradle.kts` and `AiService.kt`, strictly sourcing `GEMINI_API_KEY` from environment / GitHub repository secrets with graceful offline fallback.
 - **Settings & Modularity (Chunk 3)**: Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+), mobility/wheelchair accessibility priority toggle, and dietary filter presets (Halal, Vegetarian, Kosher). All fully wired into Find, EBT, Now, and Map screens.
-- **AI Navigator Preferences & Customization Foundation (Chunk 4 - Stage 1)**:
-  - Strongly typed Kotlin models in `Models.kt`: `AiResponseStyle` (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), `AiConnectionMode` (Automatic, Offline Only), and `AiPreferences` with safe defaults.
-  - Zero-schema-breaking Room persistence using the established `app_settings` key-value entity with string-based serialization, case-insensitive trimmed decoding, and default fallbacks.
-  - Asynchronous, lifecycle-safe repository accessors and `CompassViewModel` state properties (`aiPreferences`, `setAiResponseStyle`, `setAiConnectionMode`, `toggleAiIncludeStreetTips`, `toggleAiIncludeEligibilityDetails`, `resetAiPreferencesToDefaults`).
-  - Unit test suite in `app/src/test/java/com/example/data/AiPreferencesTest.kt` verifying default values, valid parsing, fallback resilience, serialization roundtrips, and reset behaviors.
+- **AI Navigator Preferences & Customization (Chunk 4 - Stage 1 & Stage 2)**:
+  - **Data Models & Persistence (Stage 1)**: Strongly typed Kotlin models in `Models.kt` (`AiResponseStyle`, `AiConnectionMode`, `AiPreferences`), zero-migration key-value Room storage via `app_settings`, asynchronous repository methods, reactive `CompassViewModel` states, and JUnit 4 unit tests in `AiPreferencesTest.kt`.
+  - **Settings UI Controls (Stage 2)**: Dedicated "SECTION 8" card in `SettingsScreen` (`Screens.kt`) with live guidance profile summary bar, AI Response Style radio selector (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), AI Connection Mode radio selector (Automatic, Offline Only), switches for "Include street-smart tips" and "Include eligibility details", reset to defaults button, and integration into the Quick Settings Index.
 
 - **Now Screen (Today's Navigator Dashboard)**:
   - Time-of-day greeting ("Good morning", "Good afternoon", "Good evening, traveler") with subtitle.
@@ -114,7 +112,7 @@
 
 ## [Next Up]
 - **Settings & Modularity Enhancements**:
-  - **Chunk 4: AI Navigator Customization (Gemini Integration)**: Response format & conciseness style picker (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), Offline-only heuristic fallback toggle, and custom API key / endpoint entry.
+  - **Chunk 4: AI Navigator Customization (Stage 3)**: Gemini API prompt customization & offline network gating (injecting response style constraints, street tips formatting, document checklists, and offline safety enforcement into `AiService.askAi()`).
   - **Chunk 5: Privacy, Data Sources & Granular Portability**: Granular backup/restore checkboxes (export/import specific entity sets), ephemeral/incognito search mode, photo cache manager, data source toggles, and database factory re-seeding.
   - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
 - **Share Resource Card**: Android share sheet integration to quickly text or copy address, hours, and notes for a resource to a friend or client.

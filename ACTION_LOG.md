@@ -70,3 +70,64 @@ Implemented JUnit 4 unit tests covering:
 ### APP_STATE.md Registry Update
 * **`[Implemented]`**: Added Chunk 4 Stage 1 foundation (strongly typed AI models, `app_settings` persistence, ViewModel accessors, and unit test suite).
 * **`[Next Up]`**: Ready for Stage 2 (Settings UI controls & Gemini prompt integration).
+
+---
+
+# Action Log: Stage 2 (Settings UI Controls for AI Navigator)
+
+I have implemented **Stage 2 (Settings UI Controls)** for **Chunk 4: AI Navigator Customization** in Compass SF.
+
+---
+
+### 1. Section 8: AI Navigator Customization Card (`Screens.kt`)
+
+Added a dedicated, highly polished "SECTION 8" card into `SettingsScreen` within `app/src/main/java/com/example/ui/Screens.kt` with the following components:
+
+* **Header & Quick Navigation**:
+  * "SECTION 8" badge with high-contrast accent color styling.
+  * Section title: **AI Navigator** with live connection mode badge pill.
+  * Fast jump "Index ↑" text button to return to the Quick Settings Index.
+  * Descriptive subtitle: "Configure AI guidance depth, offline safety modes, street tips, and intake requirements".
+  * Test tag: `Modifier.testTag("settings_section_ai")`.
+
+* **Active Guidance Profile Summary Bar**:
+  * Real-time summary displaying current response style title, connection mode badge, and active status chips (`+Tips`, `+Docs`).
+
+* **Subsection A: AI Response Style Selector**:
+  * Interactive selectable cards with radio buttons for all 3 styles:
+    1. **Quick Street Action** (`ai_style_quick`): Concise 2–3 sentence directions with immediate next steps.
+    2. **Step-by-Step Guide** (`ai_style_steps`): Numbered chronological roadmap from arrival to intake.
+    3. **Comprehensive Caseworker Mode** (`ai_style_caseworker`): In-depth breakdown with document checklists, criteria, and referral details.
+  * State bound to `viewModel.aiPreferences.value.responseStyle` and updated via `viewModel.setAiResponseStyle(style)`.
+
+* **Subsection B: AI Connection Mode Selector**:
+  * Interactive selectable cards with radio buttons:
+    1. **Automatic (Online + Offline Fallback)** (`ai_mode_auto`): Uses Gemini AI when online; gracefully falls back to local database heuristics when offline.
+    2. **Offline Only (Zero Network)** (`ai_mode_offline`): Completely bypasses external network calls, ensuring maximum battery saving and zero data transmission.
+  * State bound to `viewModel.aiPreferences.value.connectionMode` and updated via `viewModel.setAiConnectionMode(mode)`.
+
+* **Subsection C: Content & Detail Enrichment Toggles**:
+  * **Include street-smart tips** (`toggle_ai_street_tips`): Toggle for arrival strategies, line timing, and safety tips.
+  * **Include eligibility details** (`toggle_ai_eligibility`): Toggle for required IDs, proof of residency, and intake criteria.
+  * State bound to `viewModel.aiPreferences.value.includeStreetTips` and `includeEligibilityDetails` and updated via `viewModel.toggleAiIncludeStreetTips()` and `viewModel.toggleAiIncludeEligibilityDetails()`.
+
+* **Subsection D: Reset to Defaults Action**:
+  * Outlined button (`reset_ai_settings_button`) calling `viewModel.resetAiPreferencesToDefaults()` with immediate Toast feedback.
+
+---
+
+### 2. Quick Settings Index & Section Numbering Synchronization (`Screens.kt`)
+
+* Added `🤖 AI Navigator` entry to the Quick Settings Index grid with target item index `targetAiIndex = 10`.
+* Updated total section count calculation to 12 (or 11 when no hidden resources are present).
+* Updated all subsequent section badges and headings in `SettingsScreen`:
+  * Section 9: Launcher Identity Style
+  * Section 10: Data Portability & Backup
+  * Section 11: Hidden Resources Manager (when items are hidden)
+  * Section 12: Offline Guide Statistics & Storage
+
+---
+
+### 3. Verification & Build
+* Successfully built and verified via `compile_applet` with zero errors.
+

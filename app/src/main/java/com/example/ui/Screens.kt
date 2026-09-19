@@ -2887,13 +2887,14 @@ fun SettingsScreen(
     val targetTextIndex = 7
     val targetDisplayIndex = 8
     val targetMapIndex = 9
-    val targetIconIndex = 10
-    val targetBackupIndex = 11
-    val targetHiddenIndex = 12
+    val targetAiIndex = 10
+    val targetIconIndex = 11
+    val targetBackupIndex = 12
+    val targetHiddenIndex = 13
     val targetStatsIndex = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-        12 + 1 + hiddenResources.size + hiddenRmp.size
+        13 + 1 + hiddenResources.size + hiddenRmp.size
     } else {
-        12
+        13
     }
 
     Box(
@@ -2983,7 +2984,7 @@ fun SettingsScreen(
                                     .border(1.dp, Ink700, RoundedCornerShape(12.dp))
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
-                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 11 else 10
+                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 12 else 11
                                 Text(
                                     "$totalSections Sections",
                                     color = Mist200,
@@ -3004,6 +3005,7 @@ fun SettingsScreen(
                                 Triple("🔤 Text Size", "Scaling & Readability", targetTextIndex),
                                 Triple("🔆 Display", "Contrast & Density", targetDisplayIndex),
                                 Triple("🗺️ Map Layers", "Transit, Badges & Radar", targetMapIndex),
+                                Triple("🤖 AI Navigator", "Style, Offline & Tips", targetAiIndex),
                                 Triple("📱 App Icon", "Launcher Style", targetIconIndex),
                                 Triple("💾 Backup", "Export & Import JSON", targetBackupIndex)
                             )
@@ -4785,7 +4787,408 @@ fun SettingsScreen(
             }
         }
 
-        // Section 7: Launcher Identity Style
+        // Section 8: AI Navigator Customization & Guidance
+        item {
+            val aiPrefs = viewModel.aiPreferences.value
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_ai")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    // Header Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 8", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "AI Navigator",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .background(Ink800, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    aiPrefs.connectionMode.badge,
+                                    color = if (aiPrefs.connectionMode == AiConnectionMode.OFFLINE_ONLY) Mist400 else Beacon400,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Configure AI guidance depth, offline safety modes, street tips, and intake requirements",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Live Status Summary Pill Bar
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                "ACTIVE GUIDANCE PROFILE",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Mist400,
+                                letterSpacing = 0.8.sp
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "${aiPrefs.responseStyle.title} • ${aiPrefs.connectionMode.badge}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon400
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (aiPrefs.includeStreetTips) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(Emerald500.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                        .border(1.dp, Emerald500.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text("+Tips", fontSize = 9.5.sp, color = Emerald500, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            if (aiPrefs.includeEligibilityDetails) {
+                                Box(
+                                    modifier = Modifier
+                                        .background(Color(0xFF06B6D4).copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                        .border(1.dp, Color(0xFF06B6D4).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 5.dp, vertical = 2.dp)
+                                ) {
+                                    Text("+Docs", fontSize = 9.5.sp, color = Color(0xFF38BDF8), fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection A: AI Response Style
+                    Text(
+                        "AI RESPONSE STYLE",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon500,
+                        letterSpacing = 0.8.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Select guidance depth and formatting for street queries & service consultation",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AiResponseStyle.entries.forEach { style ->
+                            val isSelected = aiPrefs.responseStyle == style
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Ink800 else Ink950
+                                ),
+                                border = BorderStroke(
+                                    if (isSelected) 1.5.dp else 1.dp,
+                                    if (isSelected) Beacon500 else Ink800
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { viewModel.setAiResponseStyle(style) }
+                                    .testTag("ai_style_${style.id}")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                style.title,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.5.sp,
+                                                color = if (isSelected) Beacon400 else Mist100
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(
+                                                        if (isSelected) Beacon500.copy(alpha = 0.2f) else Ink800,
+                                                        RoundedCornerShape(4.dp)
+                                                    )
+                                                    .padding(horizontal = 5.dp, vertical = 1.dp)
+                                            ) {
+                                                Text(
+                                                    style.badge,
+                                                    color = if (isSelected) Beacon400 else Mist400,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Text(
+                                            style.description,
+                                            fontSize = 11.5.sp,
+                                            color = Mist400,
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.setAiResponseStyle(style) },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = Beacon500,
+                                            unselectedColor = Mist400
+                                        ),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection B: AI Connection Mode
+                    Text(
+                        "AI CONNECTION MODE",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon500,
+                        letterSpacing = 0.8.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Configure connectivity behavior and zero-data battery saving enforcement",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AiConnectionMode.entries.forEach { mode ->
+                            val isSelected = aiPrefs.connectionMode == mode
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Ink800 else Ink950
+                                ),
+                                border = BorderStroke(
+                                    if (isSelected) 1.5.dp else 1.dp,
+                                    if (isSelected) Beacon500 else Ink800
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { viewModel.setAiConnectionMode(mode) }
+                                    .testTag("ai_mode_${mode.id}")
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                mode.title,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.5.sp,
+                                                color = if (isSelected) Beacon400 else Mist100
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Text(
+                                            mode.description,
+                                            fontSize = 11.5.sp,
+                                            color = Mist400,
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.setAiConnectionMode(mode) },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = Beacon500,
+                                            unselectedColor = Mist400
+                                        ),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection C: Guidance Content Toggles
+                    Text(
+                        "CONTENT & DETAIL ENRICHMENT",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon500,
+                        letterSpacing = 0.8.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Control additional context appended to navigator advice",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Street Tips Toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { viewModel.toggleAiIncludeStreetTips(!aiPrefs.includeStreetTips) }
+                            .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                "Include street-smart tips",
+                                fontWeight = FontWeight.SemiBold,
+                                color = Mist100,
+                                fontSize = 13.5.sp
+                            )
+                            Text(
+                                "Append arrival strategies, line timing, and safety advice to AI recommendations",
+                                fontSize = 11.5.sp,
+                                color = Mist400
+                            )
+                        }
+                        Switch(
+                            checked = aiPrefs.includeStreetTips,
+                            onCheckedChange = { viewModel.toggleAiIncludeStreetTips(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500,
+                                uncheckedTrackColor = Ink800
+                            ),
+                            modifier = Modifier.testTag("toggle_ai_street_tips")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Eligibility Details Toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { viewModel.toggleAiIncludeEligibilityDetails(!aiPrefs.includeEligibilityDetails) }
+                            .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                "Include eligibility details",
+                                fontWeight = FontWeight.SemiBold,
+                                color = Mist100,
+                                fontSize = 13.5.sp
+                            )
+                            Text(
+                                "Show required IDs, proof of residency, and intake criteria directly in answers",
+                                fontSize = 11.5.sp,
+                                color = Mist400
+                            )
+                        }
+                        Switch(
+                            checked = aiPrefs.includeEligibilityDetails,
+                            onCheckedChange = { viewModel.toggleAiIncludeEligibilityDetails(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500,
+                                uncheckedTrackColor = Ink800
+                            ),
+                            modifier = Modifier.testTag("toggle_ai_eligibility")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Reset AI Defaults Button
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.resetAiPreferencesToDefaults()
+                            Toast.makeText(context, "AI Navigator preferences reset to defaults", Toast.LENGTH_SHORT).show()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .testTag("reset_ai_settings_button"),
+                        border = BorderStroke(1.dp, Ink700),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon400)
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Reset AI Navigator to Defaults", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
+        // Section 9: Launcher Identity Style
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -4807,7 +5210,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("SECTION 8", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text("Launcher Identity Style", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
                         }
@@ -4849,7 +5252,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 8: Data Portability & Backup (Export & Import)
+        // Section 10: Data Portability & Backup (Export & Import)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -4872,7 +5275,7 @@ fun SettingsScreen(
                                         .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
-                                    Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                    Text("SECTION 10", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                                 }
                                 Text(
                                     "Data Portability & Backup",
@@ -5180,7 +5583,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 9: Hidden Resources Manager
+        // Section 11: Hidden Resources Manager
         if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
             item {
                 Row(
@@ -5197,7 +5600,7 @@ fun SettingsScreen(
                                 .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("SECTION 11", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                         }
                         Text("Hidden Resources Manager", color = Beacon500, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
@@ -5252,7 +5655,7 @@ fun SettingsScreen(
             }
         }
 
-        // Section 10: App Statistics & Data Storage Status
+        // Section 12: App Statistics & Data Storage Status
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -5274,7 +5677,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                val secNum = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) "SECTION 11" else "SECTION 10"
+                                val secNum = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) "SECTION 12" else "SECTION 11"
                                 Text(secNum, color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text("Offline Guide Statistics & Storage", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 14.sp)
