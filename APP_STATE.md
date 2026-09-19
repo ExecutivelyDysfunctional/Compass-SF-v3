@@ -120,11 +120,18 @@
   - **44px / 48dp Minimum Touch Targets**: Full audit across all interactive elements (List/Map switchers, filter toggles, favorite buttons, AssistChips, dropdown triggers, and checklist items) ensuring easy single-handed thumb operation.
   - **Visual Error Handling**: Comprehensive on-screen visual banners and Toasts for all external intent launches (Maps directions, phone dialers, web links), API queries, and JSON import/export operations, completely eliminating silent failures.
 
+- **Settings & Modularity (Chunk 5: Privacy, Data Sources & Granular Portability)**:
+  - **Granular Backup & Export Group Selection**: Selective export and restore checklist allowing users to back up or restore specific data groups (Favorites & Notes, Visit Logs, Checklist Tasks, Custom Places, Captures/Photos, App Settings, Resource Data, RMP Locations) rather than all data at once.
+  - **Selective Pre-Restore Verification**: Import Preview dialog displays group-level selection checkboxes populated from backup file metadata, allowing users to choose exactly which categories to restore into Room.
+  - **Incognito Search Mode & History Manager**: Toggle in Settings ("SECTION 11") and live indicator in `FindScreen` allowing ephemeral searches that bypass local storage logging, plus one-tap search history clearing.
+  - **Photo & Document Cache Manager**: Live storage statistics card in Settings ("SECTION 12") tracking scanned flyer capture count and estimated disk usage, with a one-tap cache clear action.
+  - **Data Source Provenance & Lineage Breakdown**: Origin breakdown card in Settings ("SECTION 13") tracking record lineage across Seeded SF baseline, User Manual entries, AI Extracted data, and Imported backup files.
+  - **Full Backward Compatibility**: Unfiltered backups default to including all groups, preserving seamless compatibility with legacy backup JSON files.
+
 ---
 
 ## [Next Up]
 - **Settings & Modularity Enhancements**:
-  - **Chunk 5: Privacy, Data Sources & Granular Portability**: Granular backup/restore checkboxes (export/import specific entity sets), ephemeral/incognito search mode, photo cache manager, data source toggles, and database factory re-seeding.
   - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
 - **Share Resource Card**: Android share sheet integration to quickly text or copy address, hours, and notes for a resource to a friend or client.
 - **Resource Verification & Community Wait Time Analytics**: Extended historical wait time graphing and crowdsourced open-now confirmation telemetry.

@@ -102,6 +102,14 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     // --- AI Navigator Customization & Preferences UI State (Chunk 4) ---
     val aiPreferences = mutableStateOf(AiPreferences.DEFAULT)
 
+    // --- Privacy, Data Sources & Granular Portability UI State (Chunk 5) ---
+    val incognitoSearchModeEnabled = mutableStateOf(false)
+    val recentSearches = mutableStateOf<List<String>>(emptyList())
+    val photoCacheStats = mutableStateOf(PhotoCacheStats())
+    val provenanceStats = mutableStateOf(ProvenanceStats())
+    val exportSelectedGroups = mutableStateOf<Set<BackupGroup>>(BackupGroup.entries.toSet())
+    val importSelectedGroups = mutableStateOf<Set<BackupGroup>>(BackupGroup.entries.toSet())
+
     // --- Location & Distance Sorting UI State ---
     val userLocation = mutableStateOf<UserLocation?>(null)
     val isLocating = mutableStateOf(false)
@@ -205,6 +213,12 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
             // Load AI Navigator Customization & Preferences (Chunk 4)
             aiPreferences.value = repository.getAiPreferences()
+
+            // Load Privacy, Search History & Photo Cache (Chunk 5)
+            incognitoSearchModeEnabled.value = repository.getIncognitoSearchMode()
+            recentSearches.value = repository.getRecentSearches()
+            photoCacheStats.value = repository.getPhotoCacheStats()
+            provenanceStats.value = repository.getProvenanceStats()
 
             val locType = repository.getSetting("location_type") ?: "none"
             val savedAnchorId = repository.getSetting("selected_anchor_id")
@@ -876,6 +890,91 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         return repository.getVisitsForResource(resourceId)
     }
 
+    // --- Privacy, Data Sources & Granular Portability Actions (Chunk 5) ---
+
+    fun toggleIncognitoSearchMode(enabled: Boolean) {
+        incognitoSearchModeEnabled.value = enabled
+        viewModelScope.launch {
+            repository.saveIncognitoSearchMode(enabled)
+            if (enabled) {
+                // When activating incognito, clear any active search history from storage
+                repository.clearRecentSearches()
+                recentSearches.value = emptyList()
+            }
+        }
+    }
+
+    fun recordSearchQuery(query: String) {
+        if (incognitoSearchModeEnabled.value || query.isBlank()) return
+        viewModelScope.launch {
+            repository.addRecentSearch(query)
+            recentSearches.value = repository.getRecentSearches()
+        }
+    }
+
+    fun clearRecentSearches() {
+        recentSearches.value = emptyList()
+        viewModelScope.launch {
+            repository.clearRecentSearches()
+        }
+    }
+
+    fun refreshPhotoCacheStats() {
+        viewModelScope.launch {
+            photoCacheStats.value = repository.getPhotoCacheStats()
+        }
+    }
+
+    fun clearPhotoCache() {
+        clearSelectedPhoto()
+        viewModelScope.launch {
+            repository.clearPhotoCache()
+            photoCacheStats.value = repository.getPhotoCacheStats()
+        }
+    }
+
+    fun refreshProvenanceStats() {
+        viewModelScope.launch {
+            provenanceStats.value = repository.getProvenanceStats()
+        }
+    }
+
+    fun toggleExportGroup(group: BackupGroup) {
+        val current = exportSelectedGroups.value.toMutableSet()
+        if (current.contains(group)) {
+            current.remove(group)
+        } else {
+            current.add(group)
+        }
+        exportSelectedGroups.value = current
+    }
+
+    fun selectAllExportGroups() {
+        exportSelectedGroups.value = BackupGroup.entries.toSet()
+    }
+
+    fun deselectAllExportGroups() {
+        exportSelectedGroups.value = emptySet()
+    }
+
+    fun toggleImportGroup(group: BackupGroup) {
+        val current = importSelectedGroups.value.toMutableSet()
+        if (current.contains(group)) {
+            current.remove(group)
+        } else {
+            current.add(group)
+        }
+        importSelectedGroups.value = current
+    }
+
+    fun selectAllImportGroups() {
+        importSelectedGroups.value = BackupGroup.entries.toSet()
+    }
+
+    fun deselectAllImportGroups() {
+        importSelectedGroups.value = emptySet()
+    }
+
     // --- Data Portability: Backup & Restore UI State & Methods ---
     val importPreviewState = mutableStateOf<ImportPreview?>(null)
     val importErrorMessage = mutableStateOf<String?>(null)
@@ -887,7 +986,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     suspend fun getExportJson(): String {
         isExporting.value = true
         return try {
-            val backup = repository.createBackupData()
+            val backup = repository.createBackupData(exportSelectedGroups.value)
             repository.serializeBackup(backup)
         } finally {
             isExporting.value = false
@@ -907,6 +1006,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         try {
             val preview = repository.parseBackupJson(jsonText)
             importPreviewState.value = preview
+            importSelectedGroups.value = preview.includedGroups.toSet()
         } catch (e: Exception) {
             importErrorMessage.value = "Failed to parse backup JSON: ${e.localizedMessage ?: "Invalid or incompatible format"}"
             importPreviewState.value = null
@@ -918,9 +1018,11 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         isImporting.value = true
         viewModelScope.launch {
             try {
-                val result = repository.restoreBackup(preview.rawBackup)
+                val result = repository.restoreBackup(preview.rawBackup, importSelectedGroups.value)
                 lastImportResult.value = result
                 importPreviewState.value = null
+                refreshPhotoCacheStats()
+                refreshProvenanceStats()
                 onSuccess(result)
             } catch (e: Exception) {
                 importErrorMessage.value = "Restore failed: ${e.localizedMessage ?: "Unknown error"}"

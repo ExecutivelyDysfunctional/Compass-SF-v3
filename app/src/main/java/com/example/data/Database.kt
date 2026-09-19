@@ -99,6 +99,9 @@ interface ResourceDao {
     @Query("SELECT * FROM app_settings WHERE `key` = :key")
     suspend fun getSetting(key: String): AppSetting?
 
+    @Query("SELECT * FROM app_settings")
+    suspend fun getAllSettings(): List<AppSetting>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSetting(setting: AppSetting): Long
 
@@ -106,11 +109,20 @@ interface ResourceDao {
     @Query("SELECT * FROM captures ORDER BY id DESC")
     fun getAllCapturesFlow(): Flow<List<Capture>>
 
+    @Query("SELECT * FROM captures")
+    suspend fun getAllCaptures(): List<Capture>
+
+    @Query("SELECT COUNT(*) FROM captures")
+    suspend fun getCaptureCount(): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCapture(capture: Capture): Long
 
     @Update
     suspend fun updateCapture(capture: Capture): Int
+
+    @Query("DELETE FROM captures")
+    suspend fun deleteAllCaptures(): Int
 }
 
 @Database(

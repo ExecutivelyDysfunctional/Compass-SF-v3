@@ -217,10 +217,57 @@ I have completed the **Stage 4 Verification & Hardening Pass** for **Chunk 4: AI
 
 ---
 
-### 3. Edge Case Hardening & Safety Controls
-* **Hallucination Protection**: Pick IDs returned from Gemini are strictly filtered against active database resource IDs; non-existent/hallucinated IDs are dropped, and if no valid IDs remain, safe ranked local resources are automatically substituted.
-* **Network & Key Failures**: In the event of missing API keys, network drops, or rate limit errors, Retrofit calls automatically catch exceptions and fall back to the multi-style offline engine (`runOfflineAsk()`) seamlessly.
-* **Corrupted Preferences Safety**: Handled unknown or invalid setting IDs in `Models.kt` (`fromId()`) and `Repository.kt`, falling back gracefully to `AiPreferences.DEFAULT` without breaking application startup or Room database queries.
+
+
+---
+
+# Action Log: Chunk 5 (Privacy, Data Sources & Granular Portability)
+
+I have implemented **Chunk 5: Privacy, Data Sources & Granular Portability** in Compass SF.
+
+---
+
+### 1. Granular Backup & Restore Data Models (`Models.kt`)
+* **`BackupGroup` Enum**: Added enum (`FAVORITES_NOTES`, `VISIT_HISTORY`, `CHECKLIST_TASKS`, `CUSTOM_PLACES`, `CAPTURES_PHOTOS`, `APP_SETTINGS`, `RESOURCE_DATA`, `RMP_LOCATIONS`) with custom titles, descriptions, and icon glyphs.
+* **Granular Schema Extensions**: Extended `CompassBackup` with optional `captures` and `settings` maps, and updated `BackupMetadata` with `includedGroups` and `provenanceSummary`. Added `createdVia` (provenance origin) and `source` fields across entity and backup data classes.
+* **Stats Data Classes**: Created `PhotoCacheStats` and `ProvenanceStats` for cache tracking and data lineage analytics.
+
+---
+
+### 2. Room Database Accessors (`Database.kt`)
+* Updated `ResourceDao` with queries for `getAllSettings()`, `getAllCaptures()`, `getCaptureCount()`, and `deleteAllCaptures()`.
+
+---
+
+### 3. Repository Business Logic (`Repository.kt`)
+* **`createBackupData(groups)`**: Refactored backup creation to filter exported data according to user-selected `BackupGroup` sets, defaulting to all groups for full backward compatibility.
+* **`restoreBackup(backup, groups)`**: Refactored backup restoration to merge only selected `BackupGroup` items into Room SQLite.
+* **Privacy Controls**: Implemented `getIncognitoSearchMode()`, `saveIncognitoSearchMode()`, `addRecentSearch()`, `getRecentSearches()`, and `clearRecentSearches()`. Search queries are bypassed when incognito search mode is active.
+* **Photo Cache Management**: Implemented `getPhotoCacheStats()` and `clearPhotoCache()`.
+* **Data Provenance Analysis**: Implemented `getProvenanceStats()` calculating counts across Seeded SF records, User Manual entries, AI Extracted data, and Imported backup files.
+
+---
+
+### 4. Reactive State & ViewModel Integration (`Navigation.kt`)
+* Added `incognitoSearchModeEnabled`, `recentSearches`, `photoCacheStats`, `provenanceStats`, `exportSelectedGroups`, and `importSelectedGroups` state variables in `CompassViewModel`.
+* Added action methods for toggling incognito search, recording search queries, clearing history, clearing photo cache, refreshing provenance stats, and selecting/deselecting backup groups.
+* Updated `getExportJson()` and `confirmRestore()` to pass selected group sets to repository methods.
+
+---
+
+### 5. UI Controls & User Experience (`Screens.kt`)
+* **FindScreen**: Added incognito search status banner (`🕶️ Incognito Search Active`) and auto-recorded search terms when query length exceeds 2 characters.
+* **SettingsScreen Section 10**: Added interactive Granular Export Selection grid with group checkboxes, "Select All", and "Deselect All" quick buttons.
+* **Import Confirmation Dialog**: Added interactive Selective Restore checklist letting users review and toggle individual data groups before merging into Room.
+* **Section 11 (Privacy & Search History)**: Added Incognito Search Mode switch and search history storage card with a "Clear History" button.
+* **Section 12 (Photo Cache & Document Storage)**: Added cache statistics display showing capture count and estimated size in KB with a "Clear Cache" button.
+* **Section 13 (Data Provenance & Lineage)**: Added record origin breakdown card showing count pills for Seeded, User Manual, AI Extracted, and Imported records.
+
+---
+
+### 6. Verification & Test Suite
+* Executed `compile_applet` — **BUILD SUCCEEDED**.
+* Executed `gradle test` unit test suite — **BUILD SUCCESSFUL** (all unit tests passed in 11 seconds).
 
 
 

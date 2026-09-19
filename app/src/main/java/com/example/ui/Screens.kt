@@ -698,9 +698,31 @@ fun FindScreen(
             .background(Ink950)
     ) {
         // Search bar
+        if (viewModel.incognitoSearchModeEnabled.value) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Text("🕶️", fontSize = 12.sp)
+                Text(
+                    "Incognito Search Active — Search terms are temporary and will not be saved",
+                    fontSize = 10.sp,
+                    color = Beacon400,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
         TextField(
             value = searchQuery,
-            onValueChange = { searchQuery = it },
+            onValueChange = {
+                searchQuery = it
+                if (it.length >= 3) {
+                    viewModel.recordSearchQuery(it)
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -5422,6 +5444,92 @@ fun SettingsScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
+                    // Granular Export Selection Controls
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "SELECT DATA GROUPS TO EXPORT",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Mist400,
+                                letterSpacing = 0.8.sp
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                TextButton(
+                                    onClick = { viewModel.selectAllExportGroups() },
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                    modifier = Modifier.defaultMinSize(minHeight = 24.dp)
+                                ) {
+                                    Text("Select All", fontSize = 10.sp, color = Beacon400)
+                                }
+                                TextButton(
+                                    onClick = { viewModel.deselectAllExportGroups() },
+                                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp),
+                                    modifier = Modifier.defaultMinSize(minHeight = 24.dp)
+                                ) {
+                                    Text("Deselect All", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        val activeExportGroups = viewModel.exportSelectedGroups.value
+                        BackupGroup.entries.chunked(2).forEach { pair ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                pair.forEach { group ->
+                                    val isSelected = activeExportGroups.contains(group)
+                                    Row(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .background(if (isSelected) Ink900 else Ink950, RoundedCornerShape(6.dp))
+                                            .border(1.dp, if (isSelected) Beacon500.copy(alpha = 0.5f) else Ink800, RoundedCornerShape(6.dp))
+                                            .clickable { viewModel.toggleExportGroup(group) }
+                                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Checkbox(
+                                            checked = isSelected,
+                                            onCheckedChange = { viewModel.toggleExportGroup(group) },
+                                            colors = CheckboxDefaults.colors(
+                                                checkedColor = Beacon500,
+                                                uncheckedColor = Mist400,
+                                                checkmarkColor = Ink950
+                                            ),
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "${group.icon} ${group.title}",
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) Mist100 else Mist400,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                                if (pair.size == 1) {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
                     // Action Buttons Row 1: Export Data (Download) & Share
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -5687,7 +5795,343 @@ fun SettingsScreen(
             }
         }
 
-        // Section 12: App Statistics & Data Storage Status
+        // Section 11: Privacy, Search History & Incognito Search Mode
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 11", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Privacy & Search History",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Control search query persistence and activate ephemeral incognito search mode for street privacy.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Incognito Toggle
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, if (viewModel.incognitoSearchModeEnabled.value) Beacon500 else Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("🕶️", fontSize = 16.sp)
+                                Text("Incognito Search Mode", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                if (viewModel.incognitoSearchModeEnabled.value)
+                                    "ACTIVE: Recent searches are not saved to local storage."
+                                else
+                                    "DISABLED: Search terms are cached locally for quick repeat searches.",
+                                fontSize = 11.sp,
+                                color = if (viewModel.incognitoSearchModeEnabled.value) Beacon400 else Mist400
+                            )
+                        }
+                        Switch(
+                            checked = viewModel.incognitoSearchModeEnabled.value,
+                            onCheckedChange = { viewModel.toggleIncognitoSearchMode(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500, checkedTrackColor = Ink800),
+                            modifier = Modifier.testTag("incognito_search_toggle")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Search History Manager
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Search History Storage", fontWeight = FontWeight.SemiBold, color = Mist200, fontSize = 12.sp)
+                            Text(
+                                "${viewModel.recentSearches.value.size} recent search queries saved locally.",
+                                fontSize = 11.sp,
+                                color = Mist400
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.clearRecentSearches()
+                                Toast.makeText(context, "Search history cleared", Toast.LENGTH_SHORT).show()
+                            },
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 36.dp).testTag("clear_search_history_button")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Clear", modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Clear History", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 12: Photo Cache & Document Manager
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 12", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Photo Cache & Document Storage",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Manage storage space occupied by flyer photos and image attachments.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val cacheStats = viewModel.photoCacheStats.value
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("📷", fontSize = 16.sp)
+                                Text("${cacheStats.captureCount} Scanned Flyer Captures", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                "Estimated cache size: ${cacheStats.estimatedSizeKb} KB",
+                                fontSize = 11.sp,
+                                color = Mist400
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                viewModel.clearPhotoCache()
+                                Toast.makeText(context, "Photo cache & flyer captures cleared", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Ink800, contentColor = Color(0xFFEF4444)),
+                            border = BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.4f)),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 36.dp).testTag("clear_photo_cache_button")
+                        ) {
+                            Icon(Icons.Default.CleaningServices, contentDescription = "Clear Cache", modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Clear Cache", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 13: Data Source Provenance & Lineage Controls
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 13", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Data Provenance & Lineage",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Track the origin and verification pipeline of all resources, notes, and records.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val prov = viewModel.provenanceStats.value
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "DATABASE RECORD ORIGIN BREAKDOWN",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Black,
+                            color = Mist400,
+                            letterSpacing = 0.8.sp
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Ink900, RoundedCornerShape(6.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${prov.seedCount}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Beacon400)
+                                    Text("Seeded", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Ink900, RoundedCornerShape(6.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${prov.userCreatedCount}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Beacon400)
+                                    Text("User Manual", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Ink900, RoundedCornerShape(6.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${prov.aiAssistedCount}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Beacon400)
+                                    Text("AI Extracted", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .background(Ink900, RoundedCornerShape(6.dp))
+                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text("${prov.importedCount}", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Beacon400)
+                                    Text("Imported", fontSize = 10.sp, color = Mist400)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 14: App Statistics & Data Storage Status
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -5821,8 +6265,53 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        "Safe Merge: Restoring will merge your personal bookmarks, notes, visit records, and tasks without removing existing directory entries.",
+                        "Safe Merge: Select which data categories to restore from this backup file:",
                         fontSize = 11.sp,
+                        color = Mist200
+                    )
+
+                    // Granular restore group checkboxes
+                    val activeImportGroups = viewModel.importSelectedGroups.value
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink800, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        importPreview.includedGroups.forEach { group ->
+                            val isSelected = activeImportGroups.contains(group)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.toggleImportGroup(group) },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { viewModel.toggleImportGroup(group) },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = Beacon500,
+                                        uncheckedColor = Mist400,
+                                        checkmarkColor = Ink950
+                                    ),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "${group.icon} ${group.title}",
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) Mist100 else Mist400,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        "Existing directory entries will not be deleted when merging.",
+                        fontSize = 10.sp,
                         color = Mist400
                     )
                 }

@@ -143,6 +143,7 @@ data class AppSetting(
 )
 
 @Entity(tableName = "captures")
+@Serializable
 data class Capture(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val rawText: String,
@@ -189,12 +190,35 @@ class Converters {
 // --- Backup and Restore Models ---
 
 @Serializable
+enum class BackupGroup(
+    val id: String,
+    val title: String,
+    val description: String,
+    val icon: String
+) {
+    FAVORITES_NOTES("favorites_notes", "Favorites & Private Notes", "Saved favorite places and personal notes", "⭐"),
+    VISITS("visits", "Visit History Logs", "Logged visits, outcomes, wait times, and ratings", "📌"),
+    TASKS("tasks", "Checklist & Tasks", "To-do errands, appointments, and benefit checklists", "📋"),
+    CUSTOM_PLACES("custom_places", "Custom Places", "Manually added or AI-extracted resources & locations", "📍"),
+    CAPTURES("captures", "Flyer & Photo Captures", "Scanned document/flyer photos and text notes", "📷"),
+    SETTINGS("settings", "Settings & Preferences", "App theme, font scaling, navigation, and AI settings", "⚙️"),
+    RESOURCE_USER_DATA("resource_user_data", "Resource User Data", "Favorites and notes for directory resources", "🏢"),
+    RMP_LOCATIONS("rmp_locations", "RMP Locations", "Restricted Meal Program locations and usage stats", "🍽️");
+
+    companion object {
+        fun fromId(id: String): BackupGroup? = entries.find { it.id.equals(id, ignoreCase = true) }
+    }
+}
+
+@Serializable
 data class ResourceUserDataBackup(
     val resourceId: Int? = null,
     val name: String,
     val address: String = "",
     val favorite: Boolean = false,
-    val personalNotes: String = ""
+    val personalNotes: String = "",
+    val createdVia: String = "manual",
+    val source: String = ""
 )
 
 @Serializable
@@ -205,7 +229,9 @@ data class RmpUserDataBackup(
     val favorite: Boolean = false,
     val personalNotes: String = "",
     val timesUsed: Int = 0,
-    val lastUsedAt: Long? = null
+    val lastUsedAt: Long? = null,
+    val createdVia: String = "manual",
+    val source: String = ""
 )
 
 @Serializable
@@ -218,7 +244,8 @@ data class VisitBackup(
     val outcome: String = "got_help",
     val waitMinutes: Int? = null,
     val rating: Int? = null,
-    val notes: String = ""
+    val notes: String = "",
+    val createdVia: String = "manual"
 )
 
 @Serializable
@@ -232,7 +259,8 @@ data class TaskBackup(
     val resourceName: String? = null,
     val done: Boolean = false,
     val priority: Int = 2,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val createdVia: String = "manual"
 )
 
 @Serializable
@@ -245,7 +273,11 @@ data class BackupMetadata(
     val totalNotes: Int = 0,
     val totalVisits: Int = 0,
     val totalTasks: Int = 0,
-    val totalCustomPlaces: Int = 0
+    val totalCustomPlaces: Int = 0,
+    val totalCaptures: Int = 0,
+    val totalSettings: Int = 0,
+    val includedGroups: List<String> = emptyList(),
+    val provenanceSummary: Map<String, Int> = emptyMap()
 )
 
 @Serializable
@@ -256,7 +288,9 @@ data class CompassBackup(
     val visits: List<VisitBackup> = emptyList(),
     val tasks: List<TaskBackup> = emptyList(),
     val customResources: List<Resource> = emptyList(),
-    val customRmpLocations: List<RmpLocation> = emptyList()
+    val customRmpLocations: List<RmpLocation> = emptyList(),
+    val captures: List<Capture> = emptyList(),
+    val settings: Map<String, String> = emptyMap()
 )
 
 data class ImportPreview(
@@ -267,6 +301,9 @@ data class ImportPreview(
     val visitCount: Int,
     val taskCount: Int,
     val customPlacesCount: Int,
+    val captureCount: Int = 0,
+    val settingsCount: Int = 0,
+    val includedGroups: List<BackupGroup> = BackupGroup.entries,
     val rawBackup: CompassBackup
 )
 
@@ -275,7 +312,23 @@ data class ImportResult(
     val notesUpdated: Int,
     val visitsRestored: Int,
     val tasksRestored: Int,
-    val customPlacesRestored: Int
+    val customPlacesRestored: Int,
+    val capturesRestored: Int = 0,
+    val settingsRestored: Int = 0
+)
+
+data class PhotoCacheStats(
+    val captureCount: Int = 0,
+    val estimatedSizeKb: Long = 0,
+    val hasPendingPhoto: Boolean = false
+)
+
+data class ProvenanceStats(
+    val totalRecords: Int = 0,
+    val seedCount: Int = 0,
+    val userCreatedCount: Int = 0,
+    val importedCount: Int = 0,
+    val aiAssistedCount: Int = 0
 )
 
 // --- Search, Accessibility & Demographic Presets (Chunk 3) ---
