@@ -131,3 +131,66 @@ Added a dedicated, highly polished "SECTION 8" card into `SettingsScreen` within
 ### 3. Verification & Build
 * Successfully built and verified via `compile_applet` with zero errors.
 
+---
+
+# Action Log: Stage 3 (AI Navigator Customization Behavior & Offline Network Gating)
+
+I have implemented **Stage 3 (Behavior & Integration Layer)** for **Chunk 4: AI Navigator Customization** in Compass SF.
+
+---
+
+### 1. Retrofit Prompt & System Instruction Customization (`AiService.kt`)
+
+* **Customized System Instructions (`buildSystemInstruction`)**:
+  * Dynamically injects constraints and tone guidelines matching `AiResponseStyle`:
+    * `QUICK_STREET_ACTION`: 1–2 sentence direct action guidance and maximum 3 immediate next steps.
+    * `STEP_BY_STEP_GUIDE`: Chronological arrival-to-intake step roadmap with numbered milestones.
+    * `COMPREHENSIVE_CASEWORKER`: Detailed triage, eligibility considerations, alternative backup placements, and logistical context.
+  * Dynamically toggles Street Tips inclusion (`STREET TIPS: ENABLED / DISABLED`).
+  * Dynamically toggles Document Checklist / Eligibility Details (`ELIGIBILITY DETAILS: ENABLED / DISABLED`).
+
+* **Context & Prompt Construction (`buildUserPrompt`)**:
+  * Injects active neighborhood filter constraint and open-now constraint into user prompt.
+  * Formats resource context dynamically with street tips and requirements/documents only when enabled in preferences.
+
+* **Strict ID Validation & Hallucination Replacement**:
+  * Verifies returned pick IDs against available database resources.
+  * If the model hallucinates IDs or returns empty picks, seamlessly replaces them with top ranked matches from `rankLocalResources()`.
+
+---
+
+### 2. Zero-Network Guard & Multi-Style Offline Engine (`AiService.kt`)
+
+* **Strict Offline-Only Mode Guard**:
+  * When `connectionMode == AiConnectionMode.OFFLINE_ONLY` or `GEMINI_API_KEY` is blank, immediately routes to `runOfflineAsk()` without making any network calls or background requests.
+
+* **Multi-Factor Local Heuristic Matcher (`rankLocalResources`)**:
+  * Tokenized search across resource name, category, alsoOffers, tags, summary, description, and requirements.
+  * Weighted neighborhood proximity match and real-time open schedule calculation.
+
+* **Style-Aware Offline Response Generation (`runOfflineAsk`)**:
+  * Produces specialized responses for `QUICK_STREET_ACTION`, `STEP_BY_STEP_GUIDE`, and `COMPREHENSIVE_CASEWORKER`.
+  * Respects `includeStreetTips` and `includeEligibilityDetails` toggles in both offline answer text and next steps.
+
+---
+
+### 3. Ask Screen & ViewModel Wiring (`Navigation.kt`, `Screens.kt`)
+
+* **ViewModel Integration (`Navigation.kt`)**:
+  * Updated `CompassViewModel.askNavigator()` to pass `aiPreferences.value` to `AiService.askAi()`.
+
+* **Ask Screen Header Profile Indicator (`Screens.kt`)**:
+  * Added live indicator bar on `AskScreen` showing active response style and connection mode badge.
+
+---
+
+### 4. Unit Test Verification (`AiPreferencesTest.kt`)
+
+* Added unit tests for:
+  * `testBuildSystemInstructionForDifferentStyles`: Verifies prompt constraints for all 3 styles and toggle states.
+  * `testBuildUserPrompt`: Verifies context injection with tips and eligibility filters.
+  * `testOfflineAskQuickStreetAction`: Verifies concise action output and step limits.
+  * `testOfflineAskStepByStepAndCaseworkerStyles`: Verifies structured milestone roadmaps and comprehensive caseworker assessments.
+* Ran and passed `gradle :app:testDebugUnitTest` and full app build via `compile_applet`.
+
+

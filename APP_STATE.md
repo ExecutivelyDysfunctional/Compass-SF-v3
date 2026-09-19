@@ -17,9 +17,17 @@
   - Configured least-privilege `contents: read` permissions and concurrency run cancellation.
   - Hardened credential security: removed hardcoded fallback API keys in `app/build.gradle.kts` and `AiService.kt`, strictly sourcing `GEMINI_API_KEY` from environment / GitHub repository secrets with graceful offline fallback.
 - **Settings & Modularity (Chunk 3)**: Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+), mobility/wheelchair accessibility priority toggle, and dietary filter presets (Halal, Vegetarian, Kosher). All fully wired into Find, EBT, Now, and Map screens.
-- **AI Navigator Preferences & Customization (Chunk 4 - Stage 1 & Stage 2)**:
-  - **Data Models & Persistence (Stage 1)**: Strongly typed Kotlin models in `Models.kt` (`AiResponseStyle`, `AiConnectionMode`, `AiPreferences`), zero-migration key-value Room storage via `app_settings`, asynchronous repository methods, reactive `CompassViewModel` states, and JUnit 4 unit tests in `AiPreferencesTest.kt`.
+- **AI Navigator Preferences & Customization (Chunk 4 - Stages 1, 2, & 3 - COMPLETE)**:
+  - **Data Models & Persistence (Stage 1)**: Strongly typed Kotlin models in `Models.kt` (`AiResponseStyle`, `AiConnectionMode`, `AiPreferences`), zero-migration key-value Room storage via `app_settings`, asynchronous repository methods, reactive `CompassViewModel` states, and unit test suite in `AiPreferencesTest.kt`.
   - **Settings UI Controls (Stage 2)**: Dedicated "SECTION 8" card in `SettingsScreen` (`Screens.kt`) with live guidance profile summary bar, AI Response Style radio selector (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), AI Connection Mode radio selector (Automatic, Offline Only), switches for "Include street-smart tips" and "Include eligibility details", reset to defaults button, and integration into the Quick Settings Index.
+  - **Behavior, Prompt Customization & Offline Gating (Stage 3)**:
+    - Custom system instruction generation in `AiService.kt` strictly enforcing selected response style (Quick action vs Step-by-Step vs Caseworker triage), street tips inclusion/exclusion, and document checklist criteria.
+    - Zero-network safety enforcement: hard guard in `AiService.askAi()` bypassing network calls when `connectionMode == OFFLINE_ONLY`.
+    - Local heuristic ranker (`rankLocalResources`) with token search, neighborhood weighting, and real-time open status verification.
+    - Style-aware offline fallback generator (`runOfflineAsk`) producing tailored action steps, milestone roadmaps, and intake/eligibility guidance.
+    - Hallucination safeguard: validates Gemini pick IDs against database resources, falling back to top local ranked matches if invalid.
+    - Live profile badge on `AskScreen` showing active guidance mode and connection status.
+    - Comprehensive unit test suite covering prompt builders and offline engine.
 
 - **Now Screen (Today's Navigator Dashboard)**:
   - Time-of-day greeting ("Good morning", "Good afternoon", "Good evening, traveler") with subtitle.
@@ -112,7 +120,6 @@
 
 ## [Next Up]
 - **Settings & Modularity Enhancements**:
-  - **Chunk 4: AI Navigator Customization (Stage 3)**: Gemini API prompt customization & offline network gating (injecting response style constraints, street tips formatting, document checklists, and offline safety enforcement into `AiService.askAi()`).
   - **Chunk 5: Privacy, Data Sources & Granular Portability**: Granular backup/restore checkboxes (export/import specific entity sets), ephemeral/incognito search mode, photo cache manager, data source toggles, and database factory re-seeding.
   - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
 - **Share Resource Card**: Android share sheet integration to quickly text or copy address, hours, and notes for a resource to a friend or client.

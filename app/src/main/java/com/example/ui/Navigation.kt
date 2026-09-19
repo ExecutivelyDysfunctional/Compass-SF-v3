@@ -584,7 +584,8 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                     question = askQuestion.value,
                     resources = list.filter { !it.hidden },
                     neighborhoodFilter = askNeighborhood.value,
-                    openNowFilter = askOpenOnly.value
+                    openNowFilter = askOpenOnly.value,
+                    aiPreferences = aiPreferences.value
                 )
                 askResult.value = response
             } catch (e: Exception) {

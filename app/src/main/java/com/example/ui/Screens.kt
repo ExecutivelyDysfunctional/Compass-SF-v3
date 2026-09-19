@@ -1042,6 +1042,38 @@ fun AskScreen(
         }
 
         item {
+            val aiPrefs by viewModel.aiPreferences
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Ink900, RoundedCornerShape(8.dp))
+                    .border(1.dp, Ink700, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text("⚙️ Mode:", color = Mist400, fontSize = 11.sp)
+                    Text(
+                        aiPrefs.responseStyle.title,
+                        color = Beacon400,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Text(
+                    aiPrefs.connectionMode.badge,
+                    color = if (aiPrefs.connectionMode == AiConnectionMode.OFFLINE_ONLY) Beacon500 else Emerald500,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        item {
             OutlinedTextField(
                 value = viewModel.askQuestion.value,
                 onValueChange = { viewModel.askQuestion.value = it },

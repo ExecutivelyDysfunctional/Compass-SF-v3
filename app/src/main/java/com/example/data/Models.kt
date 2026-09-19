@@ -6,6 +6,7 @@ import androidx.room.TypeConverter
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.util.Calendar
 
 @Serializable
 data class HourBlock(
@@ -510,4 +511,50 @@ data class AiPreferences(
         val DEFAULT = AiPreferences()
     }
 }
+
+// --- Resource Time & Open Status Helpers ---
+
+fun isResourceOpen(open24: Boolean, hours: List<HourBlock>, calendar: Calendar = Calendar.getInstance()): Boolean {
+    if (open24) return true
+    if (hours.isEmpty()) return false
+    val dayOfWeek = (calendar.get(Calendar.DAY_OF_WEEK) + 5) % 7 // Convert to 0=Mon, ..., 6=Sun
+    val hour = calendar.get(Calendar.HOUR_OF_DAY)
+    val minute = calendar.get(Calendar.MINUTE)
+    val currentTimeMinutes = hour * 60 + minute
+
+    for (block in hours) {
+        val mappedDay = when (block.day) {
+            0 -> 6 // Sun
+            else -> block.day - 1
+        }
+        if (mappedDay == dayOfWeek) {
+            val openParts = block.open.split(":")
+            val closeParts = block.close.split(":")
+            if (openParts.size >= 2 && closeParts.size >= 2) {
+                val openMinutes = (openParts[0].toIntOrNull() ?: 0) * 60 + (openParts[1].toIntOrNull() ?: 0)
+                val closeMinutes = (closeParts[0].toIntOrNull() ?: 0) * 60 + (closeParts[1].toIntOrNull() ?: 0)
+                if (currentTimeMinutes in openMinutes..closeMinutes) {
+                    return true
+                }
+            }
+        }
+    }
+    return false
+}
+
+fun formatTime(timeStr: String): String {
+    val parts = timeStr.split(":")
+    if (parts.size < 2) return timeStr
+    val hr = parts[0].toIntOrNull() ?: return timeStr
+    val min = parts[1].toIntOrNull() ?: return timeStr
+    val suffix = if (hr >= 12) "pm" else "am"
+    val displayHr = when {
+        hr == 0 -> 12
+        hr > 12 -> hr - 12
+        else -> hr
+    }
+    val displayMin = if (min == 0) "" else ":${min.toString().padStart(2, '0')}"
+    return "$displayHr$displayMin$suffix"
+}
+
 
