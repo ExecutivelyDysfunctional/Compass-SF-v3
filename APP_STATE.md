@@ -130,11 +130,26 @@
   - **Quick Settings Index Integration**: Settings screen quick-jump menu updated to seamlessly route to all Chunk 5 cards (Privacy, Photo Cache, Provenance, and Offline Guide Statistics) with accurate offsets and section labels.
   - **Unit Test Coverage**: Created `Chunk5PortabilityAndPrivacyTest.kt` covering enum coverage, JSON roundtripping, fault-tolerant empty/corrupted schema handling, provenance tallies, photo cache math, and search history queue constraints (100% passing).
 
+- **Settings & Modularity (Chunk 6: Reminders & Alerts - Phase 1 Infrastructure & UI)**:
+  - **Permissions & Manifest**: Declared `POST_NOTIFICATIONS` and `VIBRATE` in `AndroidManifest.xml` with runtime permission verification.
+  - **Notification Subsystem (`NotificationHelper.kt`)**: Created 3 Android notification channels (`compass_closing_alerts`, `compass_daily_briefing`, `compass_system_alerts`) with high priority, custom vibration patterns, BigTextStyle expandability, and tap-to-open `MainActivity` routing.
+  - **Data Models & Persistence**: Implemented `@Serializable enum class ReminderLeadTime` (15m, 30m default, 45m, 60m) and `@Serializable data class ReminderPreferences` in `Models.kt`. Backed by asynchronous key-value Room storage via `app_settings` in `Repository.kt`.
+  - **State Management**: Exposed reactive `reminderPreferences` in `CompassViewModel` (`Navigation.kt`) with asynchronous startup initialization and dedicated update/reset actions.
+  - **Settings UI Controls (SECTION 14)**: Added "SECTION 14: Reminders & Alerts" card in `SettingsScreen` (`Screens.kt`) featuring:
+    - Android 13+ runtime permission banner with one-tap "Allow" permission launcher.
+    - Master schedule alerts switch.
+    - 4-chip warning lead time selector (15m, 30m, 45m, 60m).
+    - Service category toggles: Free Meal Closings & Soup Kitchens, Drop-in Clinic Intake Cutoffs, and Morning Day-Plan Briefings.
+    - Device sound & vibration toggle.
+    - Interactive "Send Test Alert" button with instant feedback Toast and "Reset Defaults" button.
+  - **Quick Settings Index Integration**: Updated the Quick Settings Index with the new 🔔 Alerts entry, accurate scroll targets, and renumbered the statistics card to Section 15.
+  - **Unit Test Coverage (`Chunk6RemindersTest.kt`)**: Verified default preferences, lead time boundary conversions, safe fallback handling, serialization/deserialization, and notification channel constants (100% passing).
+
 ---
 
 ## [Next Up]
 - **Settings & Modularity Enhancements**:
-  - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
+  - **Chunk 6: Reminders & Alerts (Phase 2)**: Background AlarmManager/WorkManager scheduling for dynamic service closing cutoff alerts (e.g. notifying before St. Anthony / Glide close) and scheduled 8:00 AM morning day-plan briefings.
 - **Share Resource Card**: Android share sheet integration to quickly text or copy address, hours, and notes for a resource to a friend or client.
 - **Resource Verification & Community Wait Time Analytics**: Extended historical wait time graphing and crowdsourced open-now confirmation telemetry.
 
@@ -165,9 +180,11 @@
 - `app/src/main/java/com/example/ui/Theme.kt` - Custom M3 theming system, theme modes, accent palettes, and typography scaling
 - `app/src/main/java/com/example/data/LocationHelper.kt` - 100% on-device Haversine proximity calculations and SF neighborhood anchor resolution
 - `app/src/main/java/com/example/data/Models.kt` - Room entities, data transfer objects, and JSON converters
+- `app/src/main/java/com/example/data/NotificationHelper.kt` - Android notification channels and alert delivery helper
 - `ACTION_LOG.md` - Chronological log of stage-by-stage implementation milestones
 - `app/src/test/java/com/example/data/AiPreferencesTest.kt` - Unit tests for AI preferences, enum parsing, safe fallbacks, and serialization
 - `app/src/test/java/com/example/data/Chunk5PortabilityAndPrivacyTest.kt` - Unit tests for Chunk 5 backup groups, JSON serialization/deserialization, provenance, photo cache, and incognito search
+- `app/src/test/java/com/example/data/Chunk6RemindersTest.kt` - Unit tests for Chunk 6 reminder preferences, lead times, serialization, and notification constants
 - `app/src/main/java/com/example/data/Database.kt` - Room Database definition and ResourceDao interface
 - `app/src/main/java/com/example/data/Repository.kt` - CompassRepository data access layer and DB seeding logic
 - `app/src/main/java/com/example/data/AiService.kt` - Gemini 3.5 Flash REST client, structured parsing, and offline fallbacks

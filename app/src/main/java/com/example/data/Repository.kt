@@ -158,11 +158,75 @@ class CompassRepository(private val dao: ResourceDao) {
         saveAiPreferences(AiPreferences.DEFAULT)
     }
 
+    // --- Schedule Reminders & Alerts Preferences (Chunk 6) ---
+
+    suspend fun getReminderPreferences(): ReminderPreferences = withContext(Dispatchers.IO) {
+        val enabledStr = getSetting(SETTING_REMINDERS_ENABLED)
+        val leadTimeStr = getSetting(SETTING_REMINDERS_LEAD_TIME)
+        val mealsStr = getSetting(SETTING_REMINDERS_MEALS)
+        val clinicsStr = getSetting(SETTING_REMINDERS_CLINICS)
+        val briefingStr = getSetting(SETTING_REMINDERS_BRIEFING)
+        val soundStr = getSetting(SETTING_REMINDERS_SOUND)
+
+        ReminderPreferences(
+            enabled = enabledStr?.toBooleanStrictOrNull() ?: false,
+            leadTime = ReminderLeadTime.fromMinutes(leadTimeStr?.toIntOrNull()),
+            notifyMealsClosing = mealsStr?.toBooleanStrictOrNull() ?: true,
+            notifyClinicsClosing = clinicsStr?.toBooleanStrictOrNull() ?: true,
+            notifyDailyBriefing = briefingStr?.toBooleanStrictOrNull() ?: true,
+            soundAndVibrate = soundStr?.toBooleanStrictOrNull() ?: true
+        )
+    }
+
+    suspend fun saveReminderPreferences(prefs: ReminderPreferences) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_REMINDERS_ENABLED, prefs.enabled.toString())
+        saveSetting(SETTING_REMINDERS_LEAD_TIME, prefs.leadTime.minutes.toString())
+        saveSetting(SETTING_REMINDERS_MEALS, prefs.notifyMealsClosing.toString())
+        saveSetting(SETTING_REMINDERS_CLINICS, prefs.notifyClinicsClosing.toString())
+        saveSetting(SETTING_REMINDERS_BRIEFING, prefs.notifyDailyBriefing.toString())
+        saveSetting(SETTING_REMINDERS_SOUND, prefs.soundAndVibrate.toString())
+    }
+
+    suspend fun setRemindersEnabled(enabled: Boolean) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_REMINDERS_ENABLED, enabled.toString())
+    }
+
+    suspend fun setReminderLeadTime(leadTime: ReminderLeadTime) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_REMINDERS_LEAD_TIME, leadTime.minutes.toString())
+    }
+
+    suspend fun toggleRemindersMeals(enabled: Boolean) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_REMINDERS_MEALS, enabled.toString())
+    }
+
+    suspend fun toggleRemindersClinics(enabled: Boolean) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_REMINDERS_CLINICS, enabled.toString())
+    }
+
+    suspend fun toggleRemindersDailyBriefing(enabled: Boolean) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_REMINDERS_BRIEFING, enabled.toString())
+    }
+
+    suspend fun toggleRemindersSound(enabled: Boolean) = withContext(Dispatchers.IO) {
+        saveSetting(SETTING_REMINDERS_SOUND, enabled.toString())
+    }
+
+    suspend fun resetReminderPreferences() = withContext(Dispatchers.IO) {
+        saveReminderPreferences(ReminderPreferences.DEFAULT)
+    }
+
     companion object {
         const val SETTING_AI_RESPONSE_STYLE = "ai_response_style"
         const val SETTING_AI_CONNECTION_MODE = "ai_connection_mode"
         const val SETTING_AI_INCLUDE_TIPS = "ai_include_tips"
         const val SETTING_AI_INCLUDE_ELIGIBILITY = "ai_include_eligibility"
+
+        const val SETTING_REMINDERS_ENABLED = "reminders_enabled"
+        const val SETTING_REMINDERS_LEAD_TIME = "reminders_lead_time"
+        const val SETTING_REMINDERS_MEALS = "reminders_notify_meals"
+        const val SETTING_REMINDERS_CLINICS = "reminders_notify_clinics"
+        const val SETTING_REMINDERS_BRIEFING = "reminders_notify_briefing"
+        const val SETTING_REMINDERS_SOUND = "reminders_sound_vibrate"
     }
 
     suspend fun insertCapture(capture: Capture): Long = dao.insertCapture(capture)

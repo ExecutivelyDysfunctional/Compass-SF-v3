@@ -2873,6 +2873,20 @@ fun SettingsScreen(
     val totalVisits = remember(visits) { visits.size }
     val totalTasks = remember(tasks) { tasks.size }
 
+    var hasNotificationPerm by remember {
+        mutableStateOf(NotificationHelper.hasNotificationPermission(context))
+    }
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasNotificationPerm = isGranted
+        if (isGranted) {
+            Toast.makeText(context, "Notifications enabled", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(context, "Notification permission denied", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     var showPasteJsonDialog by remember { mutableStateOf(false) }
     var pastedJsonText by remember { mutableStateOf("") }
 
@@ -2954,7 +2968,8 @@ fun SettingsScreen(
     val targetPrivacyIndex = 13 + hiddenOffset
     val targetPhotoCacheIndex = 14 + hiddenOffset
     val targetProvenanceIndex = 15 + hiddenOffset
-    val targetStatsIndex = 16 + hiddenOffset
+    val targetRemindersIndex = 16 + hiddenOffset
+    val targetStatsIndex = 17 + hiddenOffset
 
     Box(
         modifier = Modifier
@@ -3043,7 +3058,7 @@ fun SettingsScreen(
                                     .border(1.dp, Ink700, RoundedCornerShape(12.dp))
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
-                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 15 else 14
+                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 16 else 15
                                 Text(
                                     "$totalSections Sections",
                                     color = Mist200,
@@ -3055,7 +3070,7 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        val indexEntries = remember(hiddenResources.size, hiddenRmp.size, targetPrivacyIndex, targetPhotoCacheIndex, targetProvenanceIndex, targetStatsIndex) {
+                        val indexEntries = remember(hiddenResources.size, hiddenRmp.size, targetPrivacyIndex, targetPhotoCacheIndex, targetProvenanceIndex, targetRemindersIndex, targetStatsIndex) {
                             val list = mutableListOf(
                                 Triple("🧭 Navigation", "Startup & Bottom Bar", targetWorkspaceIndex),
                                 Triple("⚙️ Filters", "Demographic & Dietary", targetFiltersIndex),
@@ -3074,6 +3089,7 @@ fun SettingsScreen(
                             list.add(Triple("🕶️ Privacy", "Incognito & History", targetPrivacyIndex))
                             list.add(Triple("📷 Photo Cache", "Flyers & Attachments", targetPhotoCacheIndex))
                             list.add(Triple("🏷️ Provenance", "Origin & Lineage", targetProvenanceIndex))
+                            list.add(Triple("🔔 Alerts", "Meal Closings & Briefings", targetRemindersIndex))
                             list.add(Triple("📊 Statistics", "Storage & DB Stats", targetStatsIndex))
                             list
                         }
@@ -6139,7 +6155,355 @@ fun SettingsScreen(
             }
         }
 
-        // Section 14: App Statistics & Data Storage Status
+        // Section 14: Schedule Reminders & Service Closing Alerts (Chunk 6)
+        item {
+            val reminders = viewModel.reminderPreferences.value
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_reminders")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 14", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Reminders & Alerts",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Get timely device alerts before free meals close, drop-in clinic walk-in hours end, and morning checklist briefings.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Notification Permission Status Banner
+                    if (!hasNotificationPerm) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Ink950, RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFFF59E0B).copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("🔔", fontSize = 16.sp)
+                                    Text("Permission Required", fontWeight = FontWeight.Bold, color = Color(0xFFFBBF24), fontSize = 13.sp)
+                                }
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    "Android notification permission is needed to receive meal closing and schedule alerts.",
+                                    fontSize = 11.sp,
+                                    color = Mist400
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = {
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                        notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        hasNotificationPerm = NotificationHelper.hasNotificationPermission(context)
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Ink950),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .defaultMinSize(minHeight = 36.dp)
+                                    .testTag("grant_notification_permission_button")
+                            ) {
+                                Text("Allow", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Ink950, RoundedCornerShape(8.dp))
+                                .border(1.dp, Color(0xFF10B981).copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("✅", fontSize = 14.sp)
+                            Text(
+                                "System Notifications: Allowed & Active",
+                                fontSize = 11.sp,
+                                color = Color(0xFF34D399),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+
+                    // Master Reminders Switch
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, if (reminders.enabled) Beacon500 else Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("⏰", fontSize = 16.sp)
+                                Text("Schedule & Closing Alerts", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                if (reminders.enabled)
+                                    "ACTIVE: Background warnings and daily briefings will alert on device."
+                                else
+                                    "PAUSED: No notification alerts will be sent.",
+                                fontSize = 11.sp,
+                                color = if (reminders.enabled) Beacon400 else Mist400
+                            )
+                        }
+                        Switch(
+                            checked = reminders.enabled,
+                            onCheckedChange = { isChecked ->
+                                if (isChecked && !hasNotificationPerm) {
+                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                        notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    }
+                                }
+                                viewModel.setRemindersEnabled(isChecked)
+                            },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500, checkedTrackColor = Ink800),
+                            modifier = Modifier.testTag("toggle_reminders_master")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection A: Warning Lead Time
+                    Text("Warning Window Before Service Closes", fontWeight = FontWeight.SemiBold, color = Mist200, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text("How many minutes before doors close to sound an alert", fontSize = 11.sp, color = Mist400)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        ReminderLeadTime.entries.forEach { lead ->
+                            val isSelected = reminders.leadTime == lead
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Beacon500 else Ink950)
+                                    .border(1.dp, if (isSelected) Beacon500 else Ink800, RoundedCornerShape(8.dp))
+                                    .clickable { viewModel.setReminderLeadTime(lead) }
+                                    .padding(vertical = 10.dp, horizontal = 4.dp)
+                                    .testTag("reminder_lead_${lead.minutes}"),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        lead.shortLabel,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp,
+                                        color = if (isSelected) Ink950 else Mist100
+                                    )
+                                    Text(
+                                        "before",
+                                        fontSize = 9.5.sp,
+                                        color = if (isSelected) Ink950.copy(alpha = 0.8f) else Mist400
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection B: Alert Categories
+                    Text("Alert Categories", fontWeight = FontWeight.SemiBold, color = Mist200, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    // Free Meal Service Closings
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Free Meal Closings & Soup Kitchens", fontWeight = FontWeight.SemiBold, color = Mist100, fontSize = 13.sp)
+                            Text("Alert before daily lunch/dinner lines close (e.g. St. Anthony, Glide)", fontSize = 11.sp, color = Mist400)
+                        }
+                        Switch(
+                            checked = reminders.notifyMealsClosing,
+                            onCheckedChange = { viewModel.toggleRemindersMeals(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500, checkedTrackColor = Ink800),
+                            modifier = Modifier.testTag("toggle_reminders_meals")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Clinic Intake Cutoffs
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Drop-in Clinic Intake Cutoffs", fontWeight = FontWeight.SemiBold, color = Mist100, fontSize = 13.sp)
+                            Text("Alert before medical walk-in intake windows close (e.g. SF City Clinic)", fontSize = 11.sp, color = Mist400)
+                        }
+                        Switch(
+                            checked = reminders.notifyClinicsClosing,
+                            onCheckedChange = { viewModel.toggleRemindersClinics(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500, checkedTrackColor = Ink800),
+                            modifier = Modifier.testTag("toggle_reminders_clinics")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Morning Day-Plan Briefing
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Morning Day-Plan Briefing", fontWeight = FontWeight.SemiBold, color = Mist100, fontSize = 13.sp)
+                            Text("Daily morning summary of your checklist tasks and open services", fontSize = 11.sp, color = Mist400)
+                        }
+                        Switch(
+                            checked = reminders.notifyDailyBriefing,
+                            onCheckedChange = { viewModel.toggleRemindersDailyBriefing(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500, checkedTrackColor = Ink800),
+                            modifier = Modifier.testTag("toggle_reminders_briefing")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Sound & Vibration
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Sound & Vibration", fontWeight = FontWeight.SemiBold, color = Mist100, fontSize = 13.sp)
+                            Text("Play alert tone and vibrate device when notification fires", fontSize = 11.sp, color = Mist400)
+                        }
+                        Switch(
+                            checked = reminders.soundAndVibrate,
+                            onCheckedChange = { viewModel.toggleRemindersSound(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500, checkedTrackColor = Ink800),
+                            modifier = Modifier.testTag("toggle_reminders_sound")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection D: Actions (Test Notification & Reset)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
+                                if (!hasNotificationPerm && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                    notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    val success = viewModel.sendTestReminderNotification(context)
+                                    if (success) {
+                                        Toast.makeText(context, "Test alert sent! Check your notification shade.", Toast.LENGTH_LONG).show()
+                                    } else {
+                                        Toast.makeText(context, "Unable to post alert. Check notification permissions.", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 44.dp)
+                                .testTag("send_test_notification_button")
+                        ) {
+                            Icon(Icons.Default.NotificationsActive, contentDescription = "Test Notification", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Send Test Alert", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.resetReminderPreferencesToDefaults()
+                                Toast.makeText(context, "Reminders reset to defaults", Toast.LENGTH_SHORT).show()
+                            },
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200),
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 44.dp)
+                                .testTag("reset_reminders_button")
+                        ) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = "Reset", modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Reset Defaults", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 15: App Statistics & Data Storage Status
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -6161,7 +6525,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                Text("SECTION 14", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text("SECTION 15", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text("Offline Guide Statistics & Storage", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 14.sp)
                         }

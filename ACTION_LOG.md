@@ -269,5 +269,75 @@ I have implemented **Chunk 5: Privacy, Data Sources & Granular Portability** in 
 * Executed `compile_applet` — **BUILD SUCCEEDED**.
 * Executed `gradle test` unit test suite — **BUILD SUCCESSFUL** (all unit tests passed in 11 seconds).
 
+---
+
+# Action Log: Chunk 6 — Phase 1 (Reminders & Alerts Infrastructure, Settings UI & Unit Testing)
+
+Implemented Phase 1 of Chunk 6 (Reminders & Alerts) in Compass SF:
+
+### 1. Permissions & Android Manifest (`AndroidManifest.xml`)
+* Added `POST_NOTIFICATIONS` permission for Android 13+ (API 33+) push notifications.
+* Added `VIBRATE` permission for haptic device alerting.
+
+### 2. Notification Subsystem (`NotificationHelper.kt`)
+* Implemented Android notification helper with 3 dedicated notification channels:
+  * `compass_closing_alerts` (Schedule & Closing Alerts): High priority with heads-up display and vibration.
+  * `compass_daily_briefing` (Daily Morning Briefing): Default priority for morning task summaries.
+  * `compass_system_alerts` (System Alerts & Verification): High priority for test notifications and system checks.
+* Built permission check `hasNotificationPermission()` supporting both Android 13+ runtime permission and pre-API 33 legacy permissions.
+* Implemented `sendTestNotification()`, `sendClosingAlert()`, and `sendDailyBriefing()` with tap-to-open `MainActivity` intents, expandable BigTextStyle layouts, vibration patterns, and graceful permission failure handling.
+* Wired channel initialization into `MainActivity.onCreate()`.
+
+### 3. Data Models & Serialization (`Models.kt`)
+* Implemented `@Serializable enum class ReminderLeadTime(val minutes: Int, val label: String, val shortLabel: String)` (15 min, 30 min default, 45 min, 60 min) with safe `fromMinutes()` parsing.
+* Implemented `@Serializable data class ReminderPreferences` encapsulating:
+  * `enabled: Boolean` (default false)
+  * `leadTime: ReminderLeadTime` (default 30m)
+  * `notifyMealsClosing: Boolean` (default true)
+  * `notifyClinicsClosing: Boolean` (default true)
+  * `notifyDailyBriefing: Boolean` (default true)
+  * `soundAndVibrate: Boolean` (default true)
+
+### 4. Local Persistence & Room Data Access (`Repository.kt`)
+* Added `getReminderPreferences()`, `saveReminderPreferences()`, and individual reactive preference update methods (`setRemindersEnabled()`, `setReminderLeadTime()`, `toggleRemindersMeals()`, `toggleRemindersClinics()`, `toggleRemindersDailyBriefing()`, `toggleRemindersSound()`, and `resetReminderPreferences()`).
+* Zero-migration key-value storage using the `app_settings` Room SQLite table.
+
+### 5. Reactive State & ViewModel (`Navigation.kt`)
+* Added `reminderPreferences: State<ReminderPreferences>` to `CompassViewModel`.
+* Loaded user reminder preferences asynchronously on startup.
+* Implemented action methods: `setRemindersEnabled()`, `setReminderLeadTime()`, `toggleRemindersMeals()`, `toggleRemindersClinics()`, `toggleRemindersDailyBriefing()`, `toggleRemindersSound()`, `sendTestReminderNotification(context)`, and `resetReminderPreferencesToDefaults()`.
+
+### 6. Settings Screen UI Controls (`Screens.kt`)
+* **Quick Settings Index Integration**:
+  * Added `🔔 Alerts` button in the quick jump index grid routing directly to Section 14.
+  * Renumbered "Offline Guide Statistics & Storage" to Section 15.
+* **Notification Permission Banner**:
+  * Displays an amber alert banner when notification permissions are ungranted, with an "Allow" button triggering `ActivityResultContracts.RequestPermission()`.
+  * Shows a green confirmation badge when notifications are allowed.
+* **Master Reminders Toggle**:
+  * Switch to turn on/off all device schedule reminders.
+* **Warning Window Lead Time Selector**:
+  * 4 interactive chips (15m, 30m, 45m, 60m) to customize how early warnings sound before doors close.
+* **Alert Categories**:
+  * Switches for Free Meal Closings, Drop-in Clinic Cutoffs, and Morning Day-Plan Briefings.
+* **Sound & Vibration**:
+  * Switch to enable/disable sound and vibration on alert firing.
+* **Interactive Actions**:
+  * "Send Test Alert" button firing a live system notification and displaying a user confirmation toast.
+  * "Reset Defaults" button restoring recommended baseline settings.
+
+### 7. Unit Testing Suite (`Chunk6RemindersTest.kt`)
+* Created unit test suite in `app/src/test/java/com/example/data/Chunk6RemindersTest.kt`:
+  * Default preferences verification.
+  * `ReminderLeadTime` minute conversions and safe fallback handling.
+  * JSON roundtrip serialization and deserialization.
+  * Preference updates and resets.
+  * Notification channel and ID constant verifications.
+
+### 8. Verification
+* Verified via `compile_applet` — **BUILD SUCCEEDED**.
+* Executed `gradle :app:testDebugUnitTest` — **BUILD SUCCESSFUL** (all unit tests passed).
+
+
 
 

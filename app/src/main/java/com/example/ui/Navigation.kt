@@ -102,6 +102,9 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     // --- AI Navigator Customization & Preferences UI State (Chunk 4) ---
     val aiPreferences = mutableStateOf(AiPreferences.DEFAULT)
 
+    // --- Schedule Reminders & Alerts Preferences UI State (Chunk 6) ---
+    val reminderPreferences = mutableStateOf(ReminderPreferences.DEFAULT)
+
     // --- Privacy, Data Sources & Granular Portability UI State (Chunk 5) ---
     val incognitoSearchModeEnabled = mutableStateOf(false)
     val recentSearches = mutableStateOf<List<String>>(emptyList())
@@ -213,6 +216,9 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
             // Load AI Navigator Customization & Preferences (Chunk 4)
             aiPreferences.value = repository.getAiPreferences()
+
+            // Load Schedule Reminders & Alerts Preferences (Chunk 6)
+            reminderPreferences.value = repository.getReminderPreferences()
 
             // Load Privacy, Search History & Photo Cache (Chunk 5)
             incognitoSearchModeEnabled.value = repository.getIncognitoSearchMode()
@@ -884,6 +890,70 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             repository.resetAiPreferences()
         }
+    }
+
+    // --- Schedule Reminders & Alerts Actions (Chunk 6) ---
+
+    fun setRemindersEnabled(enabled: Boolean) {
+        val updated = reminderPreferences.value.copy(enabled = enabled)
+        reminderPreferences.value = updated
+        viewModelScope.launch {
+            repository.setRemindersEnabled(enabled)
+        }
+    }
+
+    fun setReminderLeadTime(leadTime: ReminderLeadTime) {
+        val updated = reminderPreferences.value.copy(leadTime = leadTime)
+        reminderPreferences.value = updated
+        viewModelScope.launch {
+            repository.setReminderLeadTime(leadTime)
+        }
+    }
+
+    fun toggleRemindersMeals(enabled: Boolean) {
+        val updated = reminderPreferences.value.copy(notifyMealsClosing = enabled)
+        reminderPreferences.value = updated
+        viewModelScope.launch {
+            repository.toggleRemindersMeals(enabled)
+        }
+    }
+
+    fun toggleRemindersClinics(enabled: Boolean) {
+        val updated = reminderPreferences.value.copy(notifyClinicsClosing = enabled)
+        reminderPreferences.value = updated
+        viewModelScope.launch {
+            repository.toggleRemindersClinics(enabled)
+        }
+    }
+
+    fun toggleRemindersDailyBriefing(enabled: Boolean) {
+        val updated = reminderPreferences.value.copy(notifyDailyBriefing = enabled)
+        reminderPreferences.value = updated
+        viewModelScope.launch {
+            repository.toggleRemindersDailyBriefing(enabled)
+        }
+    }
+
+    fun toggleRemindersSound(enabled: Boolean) {
+        val updated = reminderPreferences.value.copy(soundAndVibrate = enabled)
+        reminderPreferences.value = updated
+        viewModelScope.launch {
+            repository.toggleRemindersSound(enabled)
+        }
+    }
+
+    fun resetReminderPreferencesToDefaults() {
+        reminderPreferences.value = ReminderPreferences.DEFAULT
+        viewModelScope.launch {
+            repository.resetReminderPreferences()
+        }
+    }
+
+    fun sendTestReminderNotification(context: Context): Boolean {
+        return NotificationHelper.sendTestNotification(
+            context = context,
+            leadTimeMinutes = reminderPreferences.value.leadTime.minutes
+        )
     }
 
     fun getVisitsFlow(resourceId: Int): Flow<List<Visit>> {

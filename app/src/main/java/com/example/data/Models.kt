@@ -565,6 +565,40 @@ data class AiPreferences(
     }
 }
 
+// --- Schedule Reminders & Alerts Preferences (Chunk 6) ---
+
+@Serializable
+enum class ReminderLeadTime(
+    val minutes: Int,
+    val label: String,
+    val shortLabel: String
+) {
+    MINUTES_15(15, "15 minutes before closing", "15m"),
+    MINUTES_30(30, "30 minutes before closing (Recommended)", "30m"),
+    MINUTES_45(45, "45 minutes before closing", "45m"),
+    MINUTES_60(60, "1 hour before closing", "60m");
+
+    companion object {
+        val DEFAULT = MINUTES_30
+        fun fromMinutes(minutes: Int?): ReminderLeadTime =
+            entries.find { it.minutes == minutes } ?: DEFAULT
+    }
+}
+
+@Serializable
+data class ReminderPreferences(
+    val enabled: Boolean = false,
+    val leadTime: ReminderLeadTime = ReminderLeadTime.DEFAULT,
+    val notifyMealsClosing: Boolean = true,
+    val notifyClinicsClosing: Boolean = true,
+    val notifyDailyBriefing: Boolean = true,
+    val soundAndVibrate: Boolean = true
+) {
+    companion object {
+        val DEFAULT = ReminderPreferences()
+    }
+}
+
 // --- Resource Time & Open Status Helpers ---
 
 fun isResourceOpen(open24: Boolean, hours: List<HourBlock>, calendar: Calendar = Calendar.getInstance()): Boolean {
