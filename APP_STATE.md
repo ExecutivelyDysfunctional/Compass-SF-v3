@@ -120,13 +120,15 @@
   - **44px / 48dp Minimum Touch Targets**: Full audit across all interactive elements (List/Map switchers, filter toggles, favorite buttons, AssistChips, dropdown triggers, and checklist items) ensuring easy single-handed thumb operation.
   - **Visual Error Handling**: Comprehensive on-screen visual banners and Toasts for all external intent launches (Maps directions, phone dialers, web links), API queries, and JSON import/export operations, completely eliminating silent failures.
 
-- **Settings & Modularity (Chunk 5: Privacy, Data Sources & Granular Portability)**:
-  - **Granular Backup & Export Group Selection**: Selective export and restore checklist allowing users to back up or restore specific data groups (Favorites & Notes, Visit Logs, Checklist Tasks, Custom Places, Captures/Photos, App Settings, Resource Data, RMP Locations) rather than all data at once.
-  - **Selective Pre-Restore Verification**: Import Preview dialog displays group-level selection checkboxes populated from backup file metadata, allowing users to choose exactly which categories to restore into Room.
-  - **Incognito Search Mode & History Manager**: Toggle in Settings ("SECTION 11") and live indicator in `FindScreen` allowing ephemeral searches that bypass local storage logging, plus one-tap search history clearing.
-  - **Photo & Document Cache Manager**: Live storage statistics card in Settings ("SECTION 12") tracking scanned flyer capture count and estimated disk usage, with a one-tap cache clear action.
+- **Settings & Modularity (Chunk 5: Privacy, Data Sources & Granular Portability - FULLY VERIFIED & HARDENED)**:
+  - **Granular Backup & Export Group Selection**: Selective export and restore checklist allowing users to back up or restore specific data groups across all 8 supported buckets: Favorites & Notes, Visit Logs, Checklist Tasks, Custom Places, Captures/Photos, App Settings, Resource User Data, and RMP Locations.
+  - **Selective Pre-Restore Verification**: Import Preview dialog displays group-level selection checkboxes populated from backup file metadata, allowing users to inspect record tallies and choose exactly which categories to restore into Room.
+  - **Incognito Search Mode & History Manager**: Ephemeral search toggle in Settings ("SECTION 11") and live privacy badge in `FindScreen` preventing search query persistence, with automatic history wipe upon activation and manual one-tap clearance.
+  - **Photo & Document Cache Manager**: Local-only storage card in Settings ("SECTION 12") tracking scanned flyer capture count and estimated disk usage, with a safe one-tap cache clear action that deletes saved captures and purges in-memory bitmaps.
   - **Data Source Provenance & Lineage Breakdown**: Origin breakdown card in Settings ("SECTION 13") tracking record lineage across Seeded SF baseline, User Manual entries, AI Extracted data, and Imported backup files.
-  - **Full Backward Compatibility**: Unfiltered backups default to including all groups, preserving seamless compatibility with legacy backup JSON files.
+  - **Flow Hardening & Backward Compatibility**: Enhanced `parseBackupJson` and `restoreBackup` in `Repository.kt` to gracefully handle malformed JSON, coerce inputs, ignore unknown future fields, infer active groups from legacy payloads, and prevent duplicate insertions for custom places, visits, tasks, and captures.
+  - **Quick Settings Index Integration**: Settings screen quick-jump menu updated to seamlessly route to all Chunk 5 cards (Privacy, Photo Cache, Provenance, and Offline Guide Statistics) with accurate offsets and section labels.
+  - **Unit Test Coverage**: Created `Chunk5PortabilityAndPrivacyTest.kt` covering enum coverage, JSON roundtripping, fault-tolerant empty/corrupted schema handling, provenance tallies, photo cache math, and search history queue constraints (100% passing).
 
 ---
 
@@ -165,8 +167,8 @@
 - `app/src/main/java/com/example/data/Models.kt` - Room entities, data transfer objects, and JSON converters
 - `ACTION_LOG.md` - Chronological log of stage-by-stage implementation milestones
 - `app/src/test/java/com/example/data/AiPreferencesTest.kt` - Unit tests for AI preferences, enum parsing, safe fallbacks, and serialization
+- `app/src/test/java/com/example/data/Chunk5PortabilityAndPrivacyTest.kt` - Unit tests for Chunk 5 backup groups, JSON serialization/deserialization, provenance, photo cache, and incognito search
 - `app/src/main/java/com/example/data/Database.kt` - Room Database definition and ResourceDao interface
 - `app/src/main/java/com/example/data/Repository.kt` - CompassRepository data access layer and DB seeding logic
 - `app/src/main/java/com/example/data/AiService.kt` - Gemini 3.5 Flash REST client, structured parsing, and offline fallbacks
 - `app/src/main/java/com/example/data/SeedData.kt` - Pre-seeded curated SF community resources and EBT restaurant locations
-Updated UI to add filters and presets, and wired them into Find, EBT, Now, and Map screens.

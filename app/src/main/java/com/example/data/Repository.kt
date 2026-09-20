@@ -337,7 +337,8 @@ class CompassRepository(private val dao: ResourceDao) {
     }
 
     fun parseBackupJson(jsonString: String): ImportPreview {
-        val backup = backupJson.decodeFromString<CompassBackup>(jsonString)
+        val trimmed = jsonString.trim()
+        val backup = backupJson.decodeFromString<CompassBackup>(trimmed)
         val favCount = if (backup.metadata.totalFavorites > 0) backup.metadata.totalFavorites
             else (backup.resources.count { it.favorite } + backup.rmpLocations.count { it.favorite })
         val notesCount = if (backup.metadata.totalNotes > 0) backup.metadata.totalNotes
@@ -348,7 +349,19 @@ class CompassRepository(private val dao: ResourceDao) {
         val parsedGroups = if (backup.metadata.includedGroups.isNotEmpty()) {
             backup.metadata.includedGroups.mapNotNull { BackupGroup.fromId(it) }
         } else {
-            BackupGroup.entries
+            // Infer from payload content for backward compatibility with legacy backups
+            val inferred = mutableListOf<BackupGroup>()
+            if (backup.resources.isNotEmpty() || backup.rmpLocations.isNotEmpty()) {
+                inferred.add(BackupGroup.FAVORITES_NOTES)
+                inferred.add(BackupGroup.RESOURCE_USER_DATA)
+                inferred.add(BackupGroup.RMP_LOCATIONS)
+            }
+            if (backup.visits.isNotEmpty()) inferred.add(BackupGroup.VISITS)
+            if (backup.tasks.isNotEmpty()) inferred.add(BackupGroup.TASKS)
+            if (backup.customResources.isNotEmpty() || backup.customRmpLocations.isNotEmpty()) inferred.add(BackupGroup.CUSTOM_PLACES)
+            if (backup.captures.isNotEmpty()) inferred.add(BackupGroup.CAPTURES)
+            if (backup.settings.isNotEmpty()) inferred.add(BackupGroup.SETTINGS)
+            if (inferred.isEmpty()) BackupGroup.entries else inferred
         }
 
         return ImportPreview(
@@ -393,6 +406,7 @@ class CompassRepository(private val dao: ResourceDao) {
         // 1. Restore Custom Resources
         if (restoreCustomPlaces) {
             for (custom in backup.customResources) {
+                if (custom.name.isBlank()) continue
                 val exists = currentResources.any { it.name.trim().equals(custom.name.trim(), ignoreCase = true) }
                 if (!exists) {
                     val provenance = if (custom.createdVia.isBlank() || custom.createdVia == "seed") "imported" else custom.createdVia
@@ -408,8 +422,9 @@ class CompassRepository(private val dao: ResourceDao) {
         // 2. Restore Resource Favorites & Notes
         if (restoreResUserData) {
             for (resBackup in backup.resources) {
+                if (resBackup.name.isBlank() && resBackup.resourceId == null) continue
                 val existing = currentResources.find {
-                    it.name.trim().equals(resBackup.name.trim(), ignoreCase = true) ||
+                    (resBackup.name.isNotBlank() && it.name.trim().equals(resBackup.name.trim(), ignoreCase = true)) ||
                     (resBackup.resourceId != null && it.id == resBackup.resourceId)
                 }
                 if (existing != null) {
@@ -441,8 +456,9 @@ class CompassRepository(private val dao: ResourceDao) {
         }
 
         // 3. Restore Custom RMP Locations
-        if (restoreCustomPlaces) {
+        if (restoreCustomPlaces || groupsToRestore.contains(BackupGroup.RMP_LOCATIONS)) {
             for (custom in backup.customRmpLocations) {
+                if (custom.name.isBlank()) continue
                 val exists = currentRmp.any { it.name.trim().equals(custom.name.trim(), ignoreCase = true) }
                 if (!exists) {
                     val provenance = if (custom.createdVia.isBlank() || custom.createdVia == "seed") "imported" else custom.createdVia
@@ -458,8 +474,9 @@ class CompassRepository(private val dao: ResourceDao) {
         // 4. Restore RMP Favorites & Notes
         if (restoreRmpUserData) {
             for (rmpBackup in backup.rmpLocations) {
+                if (rmpBackup.name.isBlank() && rmpBackup.rmpId == null) continue
                 val existing = currentRmp.find {
-                    it.name.trim().equals(rmpBackup.name.trim(), ignoreCase = true) ||
+                    (rmpBackup.name.isNotBlank() && it.name.trim().equals(rmpBackup.name.trim(), ignoreCase = true)) ||
                     (rmpBackup.rmpId != null && it.id == rmpBackup.rmpId)
                 }
                 if (existing != null) {
@@ -507,6 +524,7 @@ class CompassRepository(private val dao: ResourceDao) {
             val currentVisits = dao.getAllVisits()
             val latestResources = dao.getAllResources()
             for (v in backup.visits) {
+                if (v.resourceId <= 0 && v.resourceName.isBlank()) continue
                 val targetResId = if (v.resourceName.isNotBlank()) {
                     latestResources.find { it.name.trim().equals(v.resourceName.trim(), ignoreCase = true) }?.id ?: v.resourceId
                 } else {
@@ -516,7 +534,7 @@ class CompassRepository(private val dao: ResourceDao) {
                 val isDuplicate = currentVisits.any { existing ->
                     existing.resourceId == targetResId &&
                     existing.outcome == v.outcome &&
-                    (abs(existing.visitedAt - v.visitedAt) < 60000 || existing.notes == v.notes)
+                    (abs(existing.visitedAt - v.visitedAt) < 60000 || (v.notes.isNotBlank() && existing.notes == v.notes))
                 }
 
                 if (!isDuplicate) {
@@ -541,6 +559,7 @@ class CompassRepository(private val dao: ResourceDao) {
             val currentTasks = dao.getAllTasks()
             val latestResources = dao.getAllResources()
             for (t in backup.tasks) {
+                if (t.title.isBlank()) continue
                 val isDuplicate = currentTasks.any { existing ->
                     existing.title.trim().equals(t.title.trim(), ignoreCase = true) &&
                     existing.kind == t.kind
@@ -573,6 +592,7 @@ class CompassRepository(private val dao: ResourceDao) {
         if (restoreCaptures) {
             val currentCaptures = dao.getAllCaptures()
             for (c in backup.captures) {
+                if (c.rawText.isBlank()) continue
                 val isDuplicate = currentCaptures.any { existing ->
                     existing.rawText.trim() == c.rawText.trim()
                 }
@@ -586,6 +606,7 @@ class CompassRepository(private val dao: ResourceDao) {
         // 8. Restore Settings
         if (restoreSettings) {
             for ((key, valStr) in backup.settings) {
+                if (key.isBlank()) continue
                 saveSetting(key, valStr)
                 settingsRestored++
             }

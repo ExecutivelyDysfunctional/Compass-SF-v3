@@ -2859,6 +2859,11 @@ fun SettingsScreen(
     val visits by viewModel.allVisits.collectAsState()
     val tasks by viewModel.allTasks.collectAsState()
 
+    LaunchedEffect(Unit) {
+        viewModel.refreshPhotoCacheStats()
+        viewModel.refreshProvenanceStats()
+    }
+
     val totalFavs = remember(resources, rmpLocations) {
         resources.count { it.favorite } + rmpLocations.count { it.favorite }
     }
@@ -2945,11 +2950,11 @@ fun SettingsScreen(
     val targetIconIndex = 11
     val targetBackupIndex = 12
     val targetHiddenIndex = 13
-    val targetStatsIndex = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-        13 + 1 + hiddenResources.size + hiddenRmp.size
-    } else {
-        13
-    }
+    val hiddenOffset = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) (1 + hiddenResources.size + hiddenRmp.size) else 0
+    val targetPrivacyIndex = 13 + hiddenOffset
+    val targetPhotoCacheIndex = 14 + hiddenOffset
+    val targetProvenanceIndex = 15 + hiddenOffset
+    val targetStatsIndex = 16 + hiddenOffset
 
     Box(
         modifier = Modifier
@@ -3038,7 +3043,7 @@ fun SettingsScreen(
                                     .border(1.dp, Ink700, RoundedCornerShape(12.dp))
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
-                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 12 else 11
+                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 15 else 14
                                 Text(
                                     "$totalSections Sections",
                                     color = Mist200,
@@ -3050,7 +3055,7 @@ fun SettingsScreen(
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        val indexEntries = remember(hiddenResources.size, hiddenRmp.size, targetStatsIndex) {
+                        val indexEntries = remember(hiddenResources.size, hiddenRmp.size, targetPrivacyIndex, targetPhotoCacheIndex, targetProvenanceIndex, targetStatsIndex) {
                             val list = mutableListOf(
                                 Triple("🧭 Navigation", "Startup & Bottom Bar", targetWorkspaceIndex),
                                 Triple("⚙️ Filters", "Demographic & Dietary", targetFiltersIndex),
@@ -3066,6 +3071,9 @@ fun SettingsScreen(
                             if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
                                 list.add(Triple("👁️ Hidden", "Unhide (${hiddenResources.size + hiddenRmp.size})", targetHiddenIndex))
                             }
+                            list.add(Triple("🕶️ Privacy", "Incognito & History", targetPrivacyIndex))
+                            list.add(Triple("📷 Photo Cache", "Flyers & Attachments", targetPhotoCacheIndex))
+                            list.add(Triple("🏷️ Provenance", "Origin & Lineage", targetProvenanceIndex))
                             list.add(Triple("📊 Statistics", "Storage & DB Stats", targetStatsIndex))
                             list
                         }
@@ -5740,7 +5748,7 @@ fun SettingsScreen(
                                 .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            Text("SECTION 11", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            Text("HIDDEN", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                         }
                         Text("Hidden Resources Manager", color = Beacon500, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     }
@@ -6153,8 +6161,7 @@ fun SettingsScreen(
                                     .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             ) {
-                                val secNum = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) "SECTION 12" else "SECTION 11"
-                                Text(secNum, color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                Text("SECTION 14", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                             }
                             Text("Offline Guide Statistics & Storage", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 14.sp)
                         }
