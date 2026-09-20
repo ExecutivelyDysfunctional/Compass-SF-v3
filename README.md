@@ -1,35 +1,65 @@
-# Compass SF
+# Transcribe AI
 
-Compass SF is a fast, offline-first Android street-level resource navigator for San Francisco. It provides real-time community resource directories, hot-meal maps, intake checklists, and AI-assisted street navigation guidance.
+**Transcribe AI** is an intelligent voice recording and speech analysis application powered by **Gemini**. It provides real-time streaming audio transcription, automatic speaker recognition, AI-generated highlights, contextual Q&A, and an interactive waveform audio player.
 
-## Configuration & GitHub Actions Secrets
+---
 
-### Gemini API Key Setup
+# 📖 User Guide
 
-The application supports natural-language queries and flyer analysis via the Gemini API. For security, API keys are never hardcoded or committed into source control.
+### What Transcribe AI Does for You
+- **Import Audio**: Import audio files (`.aac`, `.m4a`, `.mp3`, `.wav`) directly from your device.
+- **Real-Time Transcription**: Watch transcriptions stream in live with automatic speaker identification (`Speaker 1`, `Speaker 2`) and keyword highlighting.
+- **Smart Summaries & Highlights**: Automatically get executive summaries and key takeaways for every conversation.
+- **Interactive Audio Player**: Review recordings using a visual waveform player with variable playback speeds (`0.5x`, `1.0x`, `1.5x`, `2.0x`) and skip controls.
+- **Ask Gemini Q&A**: Ask complex questions about your transcripts and get deep reasoning answers instantly.
+- **Organize & Search**: Search across transcript text or dates, rename speakers, batch delete, and export records as JSON.
+- **Appearance Settings**: Easily switch between Light, Dark, or System themes.
 
-To enable live Gemini features in automated builds and local development:
+### How to Use the App
+1. **Import Audio**: Tap **Pick AAC Audio** (or browse supported formats) to select an audio file from your device.
+2. **Review Transcription**: Watch the real-time transcription and summary generate automatically.
+3. **Playback**: Tap the **Play** button to listen to the recording with waveform progress tracking and speed controls.
+4. **Ask Questions**: Type your question in the query box under a transcript and tap **Ask Gemini** for deep insights.
+5. **Organize**: Tap speaker names to rename them or use the search bar in Journal History to find past transcriptions instantly.
+6. **Settings**: Tap the gear icon in the top bar to manage your account sync and theme preferences.
 
-1. **GitHub Actions Workflow**:
-   - In your GitHub repository, navigate to **Settings** > **Secrets and variables** > **Actions**.
-   - Click **New repository secret**.
-   - Set the **Name** to `GEMINI_API_KEY`.
-   - Set the **Value** to your valid Google AI Studio Gemini API key.
-   - The canonical `build-apk.yml` workflow automatically passes `${{ secrets.GEMINI_API_KEY }}` into the Gradle build environment.
+---
 
-2. **Local Environment / Build**:
-   - Set the `GEMINI_API_KEY` environment variable in your shell or terminal:
-     ```bash
-     export GEMINI_API_KEY="your-gemini-api-key-here"
-     ```
-   - If `GEMINI_API_KEY` is not provided or empty, the application compiles normally and automatically activates built-in offline keyword and semantic matching fallbacks.
+# 🛠️ Developer Guide
 
-## Building the APK
-
-To build the debug APK locally:
-
-```bash
-./gradlew assembleDebug
+### Architecture & Project Structure
+The application follows modern Android architecture (MVVM, Kotlin Coroutines, Jetpack Compose, Room):
+```
+app/src/main/java/com/example/
+├── MainActivity.kt               # Main entry point, player, and transcript viewer
+├── TranscriptionHistoryScreen.kt # Journal history, search, batch delete, export
+├── api/
+│   └── GeminiApiService.kt       # Retrofit service & Gemini streaming client
+├── db/
+│   ├── AppDatabase.kt            # Room database definition
+│   ├── Transcription.kt          # Room entity
+│   ├── TranscriptionDao.kt       # Room data access object
+│   └── TranscriptionRepository.kt# Repository managing local/cloud data flows
+└── ui/
+    ├── MainViewModel.kt          # ViewModel managing app state & API calls
+    ├── SettingsScreen.kt         # Settings & authentication UI
+    └── theme/
+        ├── Color.kt              # M3 color palettes
+        ├── Theme.kt              # Theme definitions
+        └── Type.kt               # Typography configurations
 ```
 
-The output APK will be located at `app/build/outputs/apk/debug/`.
+### Tech Stack & Dependencies
+- **Language**: Kotlin 100%
+- **UI Framework**: Jetpack Compose (Material Design 3)
+- **Local Persistence**: Room SQLite Database
+- **Networking**: Retrofit, Kotlinx Serialization
+- **AI Integration**: Gemini API (Streaming SSE & High Thinking mode)
+
+### Configuration & Build Requirements
+- **Minimum SDK**: Android 24+
+- **Target SDK**: Android 34
+- **API Key**: Configured securely via `BuildConfig.GEMINI_API_KEY` (managed through AI Studio Secrets).
+
+### CI/CD & GitHub Actions
+Automated APK builds are configured via `.github/workflows/build-apk.yml`. Builds run on manual dispatch (`workflow_dispatch`) or when a push includes the `[build]` or `[build-apk]` tag in the commit message.

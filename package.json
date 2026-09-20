@@ -1,7 +1,0 @@
-{
-  "name": "compass-sf-android",
-  "version": "1.0.0",
-  "scripts": {
-    "build": "echo 'Android app compiles via Gradle build system successfully!'"
-  }
-}
