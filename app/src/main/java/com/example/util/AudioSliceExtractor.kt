@@ -92,7 +92,7 @@ object AudioSliceExtractor {
             tempFile = File.createTempFile("golden_slice_${UUID.randomUUID()}_", ".m4a", context.cacheDir)
             muxer = MediaMuxer(tempFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             val muxerTrack = muxer.addTrack(trackFormat)
-            muxer.start()
+            var muxerStarted = false
 
             val startUs = sMs.toLong() * 1000L
             val endUs = eMs.toLong() * 1000L
@@ -118,13 +118,17 @@ object AudioSliceExtractor {
                 if (sampleTimeUs >= (startUs - 200000L)) { // include sync margin
                     bufferInfo.presentationTimeUs = (sampleTimeUs - startUs).coerceAtLeast(0)
                     bufferInfo.flags = extractor.sampleFlags
+                    if (!muxerStarted) {
+                        muxer.start()
+                        muxerStarted = true
+                    }
                     muxer.writeSampleData(muxerTrack, buffer, bufferInfo)
                     samplesWritten++
                 }
                 extractor.advance()
             }
 
-            if (samplesWritten > 0) {
+            if (muxerStarted && samplesWritten > 0) {
                 try {
                     muxer.stop()
                 } catch (e: Exception) {
@@ -204,6 +208,7 @@ object AudioSliceExtractor {
             val muxer = MediaMuxer(file.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
             var audioTrackIndex = -1
             var muxerStarted = false
+            var samplesWritten = 0
 
             val bufferInfo = MediaCodec.BufferInfo()
             var sampleIndex = 0
@@ -245,37 +250,43 @@ object AudioSliceExtractor {
                 }
 
                 var outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 10000)
-                while (outputBufferIndex >= 0) {
-                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
-                        bufferInfo.size = 0
-                    }
-                    if (bufferInfo.size != 0 && muxerStarted) {
-                        val outputBuffer = codec.getOutputBuffer(outputBufferIndex)
-                        outputBuffer?.let {
-                            it.position(bufferInfo.offset)
-                            it.limit(bufferInfo.offset + bufferInfo.size)
-                            muxer.writeSampleData(audioTrackIndex, it, bufferInfo)
+                while (outputBufferIndex >= 0 || outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                        if (!muxerStarted) {
+                            audioTrackIndex = muxer.addTrack(codec.outputFormat)
+                            muxer.start()
+                            muxerStarted = true
                         }
-                    }
-                    codec.releaseOutputBuffer(outputBufferIndex, false)
-                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                        break
+                    } else if (bufferInfo.size != 0 && muxerStarted) {
+                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG != 0) {
+                            bufferInfo.size = 0
+                        }
+                        if (bufferInfo.size != 0) {
+                            val outputBuffer = codec.getOutputBuffer(outputBufferIndex)
+                            outputBuffer?.let {
+                                it.position(bufferInfo.offset)
+                                it.limit(bufferInfo.offset + bufferInfo.size)
+                                muxer.writeSampleData(audioTrackIndex, it, bufferInfo)
+                                samplesWritten++
+                            }
+                        }
+                        codec.releaseOutputBuffer(outputBufferIndex, false)
+                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                            break
+                        }
+                    } else {
+                        codec.releaseOutputBuffer(outputBufferIndex, false)
                     }
                     outputBufferIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
-                }
-                if (outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                    audioTrackIndex = muxer.addTrack(codec.outputFormat)
-                    muxer.start()
-                    muxerStarted = true
                 }
             }
 
             try { codec.stop() } catch (e: Exception) {}
             codec.release()
-            if (muxerStarted) {
+            if (muxerStarted && samplesWritten > 0) {
                 try { muxer.stop() } catch (e: Exception) {}
             }
-            muxer.release()
+            try { muxer.release() } catch (e: Exception) {}
             if (file.exists() && file.length() > 500) file else null
         } catch (e: Exception) {
             Log.e(TAG, "Failed to create synthetic golden sample: ${e.message}")
