@@ -1,221 +1,148 @@
-# Application State Registry (APP_STATE.md)
+# Application State: Compass SF
 
-## Mode Confirmation
-- **Architecture Mode**: Multi-File Mode (Native Android application using Kotlin, Jetpack Compose, Room DB, Retrofit, and Firebase).
+## Project Architecture & Delivery Mode
+- **Mode:** Multi-File Mode (Native Android application built with Kotlin, Jetpack Compose, Room Database, and Retrofit)
 
 ---
 
 ## [Implemented]
-- **Chunk 6 Phase 2 Hardening: Grouped Multi-Part Session Cards & Journal Integration**:
-  - **Deterministic Part Ordering & Fallback**: Hardened session part sequencing in `TranscriptionHistoryScreen.kt` using `(it.partIndex?.takeIf { idx -> idx >= 0 } ?: Int.MAX_VALUE)` then `timestamp`, cleanly handling gaps, missing part indices, and negative values.
-  - **Adaptive Session Summary Presentation**: Enhanced `MasterSessionCard` to display consolidated master AI summary or gracefully fall back to first part summary or transcript preview with clear visual distinction and auto-expanding controls.
-  - **Multi-Select Parity & Batch Management**: Selecting a master session card toggles all member part IDs simultaneously, supporting unified batch deletion and multi-part JSON export.
-  - **Touch Ergonomics & Accessibility**: Upgraded MasterSessionCard action buttons (Play Full Session, Export JSON, Delete, Play Part, Toggle Transcript) to meet 48dp minimum touch target specifications.
-  - **Isolated Local Deletion**: Local Room deletions via `MainViewModel.deleteTranscriptions` and `deleteSession` operate strictly on Room database, preserving cloud Firestore records from accidental removal.
-  - **Resilient JSON Import/Export Round-Trips**: Hardened `MainViewModel.importTranscriptionsFromJson` to handle `sequential_session` structures, legacy transcript arrays, null/malformed elements (`optJSONObject`), and normalized part indices.
-  - **Comprehensive Test Coverage (`SessionGroupingAndJournalHardeningTest.kt`)**: Added 8 automated unit tests covering session grouping, part ordering with gaps/nulls, duplicate part indices, standalone preservation, multi-select expansion, master summary fallback, JSON round-trips, and malformed JSON resilience.
-- **Multi-User Room Architecture & Offline-to-Cloud Account Linking**:
-  - **Room Database Schema v13 (`AppDatabase.kt`)**: Added `MIGRATION_12_13` supporting `userId` on `SpeakerProfile` and `LocationProfile` tables, enabling clean per-user partitioning and offline-to-registered data transitions.
-  - **User-Aware Repositories & DAOs**: Extended `SpeakerDao`, `SpeakerRepository`, `LocationDao`, and `LocationRepository` with user-filtered queries and `updateUserIdForLocalRecords` to reassign guest data upon sign-in or registration.
-  - **Seamless Guest-to-Email Account Conversion**: Implemented Firebase anonymous credential linking (`linkWithCredential`) in `MainViewModel.registerWithEmail`, allowing users starting in Guest Mode to create an account and preserve all existing local records, venue presets, and speaker profiles without data loss.
-  - **Full-Spectrum Cloud Synchronization (`syncTranscriptionsWithCloud`)**: Cloud sync now coordinates bidirectional synchronization for `Transcription`, `SpeakerProfile`, and `LocationProfile` collections in Firestore.
-  - **Decoupled Local Deletion**: Local deletion of transcriptions in Room database strictly preserves Firestore records, preventing accidental cloud data loss.
-  - **Audio Cloud Storage Toggle**: Added configurable audio cloud backup preference persisted in `SharedPreferences` and integrated into `UiState` and `SettingsScreen.kt`.
-  - **Firestore Security Rules (`firestore.rules`)**: Added production security rules enforcing strict user data isolation (`/users/{userId}/...` matching `request.auth.uid == userId`) across transcriptions, speakers, locations, and audio metadata.
-  - **ViewModel Auth Orchestration in `SettingsScreen.kt`**: Completely refactored `SettingsScreen.kt` to route all auth actions (sign in, register/link, sign out, password reset, email verification, audio cloud backup toggle) through `MainViewModel`.
-- **Google API Key Remediation & Secret Leak Prevention**:
-  - **Neutralized Exposed Key**: Removed the hardcoded Google API key from `firebase-applet-config.json` and replaced it with a safe placeholder (`AIzaSy_REDACTED_USE_AI_STUDIO_SECRETS_PANEL`).
-  - **Git Credential Safeguards**: Updated `.gitignore` with comprehensive rules ignoring `.env`, `firebase-applet-config.json`, `google-services.json`, `secrets.properties`, `local.properties`, and keystores (`*.jks`, `*.keystore`, `*.p12`).
-  - **Automated CI Secret Audit**: Added an automated pre-build secret scanning step (`Secret Leak Prevention & Security Audit`) in `.github/workflows/build-apk.yml` that halts builds if unmasked Google API keys (`AIzaSy...`) or missing `.gitignore` rules are detected.
-  - **Security Unit Testing Suite (`ApiKeySecurityTest.kt`)**: Added automated JUnit tests verifying that config files contain no exposed API keys, sensitive files are gitignored, `.env.example` contains only placeholders, and regex key masking successfully redacts various API key formats.
-  - **In-App Security Guidance**: Added an explicit security notice card in `SettingsScreen.kt` informing users about secret protection, environment variable usage, and restricting API keys to the Android package name and SHA-1 certificate in Google Cloud Console.
-- **Bluetooth Microphone Recording Reliability & Route Management**:
-  - **Android 12+ (API 31+) Communication Device Routing**: Integrated modern `AudioManager.setCommunicationDevice()` and `clearCommunicationDevice()` using `AudioDeviceInfo` (`TYPE_BLUETOOTH_SCO`, `TYPE_BLE_HEADSET`, `TYPE_BLUETOOTH_A2DP`, `TYPE_HEARING_AID`), ensuring reliable Bluetooth earbud / headset microphone capture on newer Android versions.
-  - **Legacy SCO Fallback & `MODE_IN_COMMUNICATION`**: Handled legacy `startBluetoothSco()` and `isBluetoothScoOn` routing for API < 31, with strict audio mode lifecycle management (`MODE_IN_COMMUNICATION` during recording, restored to `MODE_NORMAL` on stop).
-  - **Dynamic Sample Rate & Buffer Helper (`AudioConfigHelper.kt`)**: Created helper to probe supported sample rates (16kHz, 44.1kHz, etc.) and calculate valid minimum buffer sizes (`AudioRecord.getMinBufferSize`), preventing initialization failures on diverse device hardware.
-  - **Audio Source Fallbacks**: Implemented multi-tier source fallbacks (`VOICE_COMMUNICATION` -> `MIC` -> `DEFAULT`) in `RecordingService.kt` to guarantee `AudioRecord` state initialization across Bluetooth and phone mic hardware.
-  - **Synchronized Service Lifecycle & Thread Safety**: Secured `startRecording` and `stopRecording` in `RecordingService.kt` with thread locks, coroutine supervisor scopes, `RECORD_AUDIO` / `BLUETOOTH_CONNECT` permission validation, dynamic WAV conversion with actual recorded sample rate, and MediaStore public folder sync.
-- **Accurate Google Sign-In Error Classifier (`GoogleSignInErrorClassifier.kt`)**:
-  - **CredentialManager Exception Classification**: Implemented sealed class classifier (`GoogleSignInResult`) distinguishing true user cancellations (`GetCredentialCancellationException` or explicit cancellation messages) from account availability issues (`NoCredentialException`), OAuth / SHA-1 client misconfigurations (`DEVELOPER_ERROR` / status code 10), and generic failures.
-  - **Detailed Auth Diagnostics**: Updated `SettingsScreen.kt` to eliminate false "cancelled by user" dialogs on setup failures, replacing broad string matches with precise exception classification and surfacing explicit guidance for missing SHA-1 fingerprints or account configuration issues.
-- **Universal Audio Format Engine & MIME Detection Fix**:
-  - **Gemini API 400 Fix & Model Identifiers**: Updated active Gemini transcription and analysis endpoints to valid production models (`gemini-2.5-flash` and `gemini-2.5-pro`), eliminating 400 Bad Request / 404 Not Found failures caused by deprecated or invalid model names.
-  - **Biometric Reference Slice MIME Sanitization**: Verified and sanitized audio slice MIME types in `AudioSliceExtractor.kt` and `MainViewModel.kt` to ensure reference slices use valid Gemini inline MIME types (`audio/aac`, `audio/wav`, `audio/mp3`, `audio/ogg`, `audio/flac`, `audio/aiff`) instead of rejected video container types.
-  - **Detailed HTTP Error Body Extraction**: Enhanced error handling across API callers with `extractErrorMessage` to catch `retrofit2.HttpException`, parse JSON error responses (`error.message` / `error.status`), and surface exact Gemini validation messages directly in the on-screen error banner.
-  - **Dynamic Audio Info & Container Inspection (`detectAudioInfo` & `sanitizeMimeTypeForGemini`)**: Replaced hardcoded `"audio/aac"` strings across single-part, multi-part, and batch transcription workflows with real-time byte signature inspection (checking `ftyp`, `RIFF`, `ID3`, `OggS`, `fLaC`, `#!AMR`, and sync bytes) combined with `ContentResolver` and extension parsing.
-  - **Eliminated HTTP 400 Bad Request Errors**: Standardized container and MIME mappings for Gemini (e.g. mapping `ftyp` ISO containers to `audio/m4a`, WAV files to `audio/wav`, MP3 to `audio/mp3`, OGG to `audio/ogg`, FLAC to `audio/flac`, and raw ADTS streams to `audio/aac`), ensuring complete API compliance and resolving upload errors.
-  - **Expanded Audio Format Processing**: Added full, dynamic file detection, local caching, Drive upload, and Gemini transcription support for WAV (`.wav`), AAC (`.aac`), M4A (`.m4a`), MP3 (`.mp3`), OGG / OPUS (`.ogg`, `.opus`), FLAC (`.flac`), 3GP (`.3gp`), AMR (`.amr`), MP4 Audio (`.mp4`), WMA (`.wma`), and AIFF (`.aiff`).
-- **GitHub Actions Workflows Modernization & Automated Builds**:
-  - **Single Consolidated Production Workflow (`.github/workflows/build-apk.yml`)**: Audited all 6 disparate/copied workflows and unified the best patterns into a single production CI workflow.
-  - **Triggers**: Builds automatically on pushes/PRs to `main` and `master`, on release tags (`v*`), and on manual `workflow_dispatch` with selectable diagnostics mode (`normal`, `verbose`, `debug` - default `debug`).
-  - **Resilient Pre-Build & Build Chain**: Replaced third-party SDK actions with direct, resilient Android SDK discovery and license hash injection, explicit Gradle 9.3.1 provisioning, multi-target execution fallback (`./gradlew` or direct `gradle`), base64 keystore decoding with fallback generator, and environment `.env` bootstrap.
-  - **Extensive Pre-Build Diagnostics & Targeted Section Failure Logging**: Features upfront environment audits, collapsible log groups (`::group::`), and an automatic failure extractor step that isolates the exact failing task/section from `build-output.log` (`* What went wrong:`, stack traces, compiler errors) directly into `$GITHUB_STEP_SUMMARY` and `failure-section.log`.
-  - **Smart Version-Tagged Artifacts & Failure Diagnostics**: Uses dynamic `aapt` inspection to extract real `versionName` and `versionCode` for clear artifact filenames, with automatic diagnostic log capture on failure.
-  - **Clean Workspace**: Removed redundant legacy workflows (`immediate-build.yml`, `scheduled-build.yml`, `build-apk-balanced-hybrid_Version5.yml`, `build-apk-fast-resilient_Version5.yml`, and `build-apk-high-feedback_Version5.yml`).
-- **Biometric Calibration & Voice Matching Fine-Tuning**:
-  - **Custom Threshold & Acoustic Controls**: Integrated configurable parameters for Acoustic Matching Sensitivity (`Strict`, `Balanced`, `High Recall`), Reference Audio Slice Duration (`5s`, `10s`, `15s`), Max Bundled Reference Speaker Profiles (`3`, `5`, `10`), and Acoustic Spectrum Analysis Profiles (`Standard`, `Enhanced Harmonic`, `Noise Suppressed`).
-  - **Persistent Settings & Prompt Injection**: Calibration choices persist in `SharedPreferences` and dynamically instruct `MainViewModel` and `AudioSliceExtractor` to tune audio slice extraction parameters and inject strict/high-recall matching rules directly into Gemini prompt payloads.
-  - **Interactive Calibration & Accuracy Benchmark Deck**: Built an interactive calibration test suite inside `SettingsScreen` that extracts and analyzes stored speaker golden sample slices, verifies duration metrics, and generates a formatted benchmark fidelity report card.
-- **Interactive Batch Transcription Selection, Background Progress UI, and Waveform Bounds Editor**:
-  - **Interactive Batch Selection UI Sheet**: Displays an elegant Material 3 bottom sheet prompting users to select between "Process as a Multi-Part Sequential Session" (stitches them into a single chronological session) or "Process as Separate Standalone Recordings" (adds them as separate tasks in the background transcription queue).
-  - **Background Queue Progress & Status Bar**: Renders a globally visible, modern progress card under the app bar displaying active file queues (e.g., "Processing file 2 of 5...") with precise progress percentages.
-  - **Waveform Golden Sample Bounds Editor**: Seamlessly integrated drag-to-trim bounds directly on the interactive 52-bar waveform canvas. Tapping on a "Golden Clip" badge lets users visually adjust start and end handles and verify their clip.
-
-- **Location Tiers & Ambient Venue Tagging**:
-  - **Saved Venue Presets Directory**: Created a database model (`LocationProfile`), DAO, and repository supporting venue tagging with custom addresses, location notes, and real-time visit count logging.
-  - **Ambient Location Extraction & Auto-Matching**: Gemini summary extractions dynamically match against saved preset locations, auto-matching venue titles and incrementing visit counts with zero user overhead.
-  - **Interactive Venue Management Deck**: Custom, modern management pane inside Settings allowing users to add, review, edit, or delete preset venues with a single tap.
-- **Diarization Confidence & Feedback Loop**:
-  - **Confidence Badge Scoring**: Parsed and saved diarization confidence levels (`High`, `Medium`, `Low`) inside the Room database schema and displayed high-visibility, color-coded confidence badges across Journal history cards and playback reviews.
-  - **Interactive Verification & Label Correction**: Tapping on the diarization confidence badge on the Playback Screen opens an interactive validation dialog where users can manually edit active speaker rosters and verify confidence levels on-the-fly.
-- **Few-Shot Audio Voice Biometrics with Gemini (Golden Sample Prompting)**:
-  - **Verified Reference Audio Slicing (`AudioSliceExtractor.kt`)**: High-fidelity audio segment extraction utility using Android's `MediaExtractor` and `MediaMuxer` (with stream read fallback) to cleanly carve 10–15 second golden reference audio slices (`goldenSampleAudioUri`, `startMs`, `endMs`) from known speaker profiles.
-  - **Multimodal Biometric Voice Context Injection**: `MainViewModel.transcribeAudioBytes` and `transcribeSequentialSession` automatically inspect the local `SpeakerProfile` directory for registered speakers with verified Golden Samples and bundle them as separate `Part` objects (`InlineData` with base64 audio and metadata headers) alongside the target recording payload.
-  - **Acoustic Vocal Matching Instructions**: Enhanced system prompt instructing Gemini 3.5 Flash to acoustically compare target speaker voices against the verified Golden Sample reference audio clips, auto-labeling transcript dialogue lines with verified canonical names.
-  - **Directory-Enriched Structured Summary Extraction**: Prompting pipeline injects registered roster names into the structured JSON summary extractor (`location`, `active_speakers`, `mentioned_people`) ensuring accurate attribution across conversation insights.
-- **Dynamic Journal History Filtering & Filtering Bar**:
-  - **Multi-Dimensional Filter Bar (`LazyRow`)**: Elegant filter chips row positioned directly above the Search Bar in `TranscriptionHistoryScreen.kt` featuring:
-    - **Active Filter Counter & Clear Chip**: Error-container tinted quick "Clear (X)" button appearing whenever filters or search terms are active to reset all filters in a single tap.
-    - **Date Range / Time Bucket Filter**: Dropdown filter chip supporting "All Time", "Today", "Past 7 Days", and "This Month".
-    - **Specific Speaker Filter**: Dropdown filter chip dynamically populated from `SpeakerProfile` directory and transcript records, with individual dismiss cross.
-    - **Location Filter**: Dropdown filter chip dynamically extracted from distinct inferred and assigned locations in journal history.
-    - **Quick Suggestion Chips**: One-tap suggestion chips for top registered speakers and frequent locations for effortless thumb navigation.
-    - **Interactive Speaker & Location Linking**: Tapping on a speaker profile card inside `SpeakerDetailDialog` offers a dedicated "Filter Journal" button to immediately isolate that speaker's recordings.
-- **Personal Audio Tagging & Speaker Biometrics (Known Speakers Roster & Profile Management - Chunk 4)**:
-  - **Room DB V10 Schema Migration**: Dedicated `SpeakerProfile` entity (`speaker_profiles` table), `SpeakerDao`, and `SpeakerRepository` tracking speaker ID, canonical name, relationship/role, color hex badge, golden sample audio URI, segment start/end timestamps, recording title reference, total recordings count, and last heard timestamp.
-  - **Auto-Syncing Profile Stats**: `MainViewModel.syncSpeakersFromHistory` dynamically scans journal history and auto-creates or updates speaker profile recording counts and last heard dates.
-  - **Dedicated Speakers Directory Screen (`SpeakerManagementScreen.kt`)**: Top-level 3rd tab in navigation and linked from Settings, featuring searchable speaker profiles, stats chips, custom color picker dialog, role assignment, and Golden Sample audio preview playback controls.
-  - **Transcript Dynamic Color Badges**: Integrated `SpeakerProfile.colorHex` into transcript views across `PlaybackScreen` and history cards, highlighting speakers with their personalized color badges and verified Golden Sample icons.
-  - **In-Transcript Golden Sample Tagging**: One-tap "Assign Golden Clip" on any transcript line in `PlaybackScreen` opening `AssignGoldenSampleDialog` with live audio preview and quick speaker assignment or on-the-fly profile creation.
-  - **Modal Speaker Detail Dialog (`SpeakerDetailDialog`)**: Clicking on any speaker tag in `PlaybackScreen` or journal history cards opens a rich modal profile card with stats, golden clip preview/removal, and quick profile editing.
-- **Google Drive Contextual Automation & Folder Organization (Chunk 3)**:
-  - **Context-Aware File Renaming**: Automatically renames uploaded audio files in Google Drive via `GoogleDriveApiService.updateFileMetadata` to clean, standardized format: `[YYYY-MM-DD] <Location or Title> - <Session Title>.<ext>`.
-  - **Contextual Folder Hierarchy**: Automatically creates and maintains structured Google Drive folder directories: `Transcribe AI / <Location>` (or chronological fallback `Transcribe AI / YYYY-MM`). Audio files are dynamically relocated into their designated folder by updating file parents (`addParents` / `removeParents`).
-  - **Companion Document Upload**: Automatically generates and uploads structured companion JSON documents (`[YYYY-MM-DD] <Title> - Transcript & Summary.json`) containing complete session metadata, active speaker rosters, mentioned individuals, full transcript text, and executive AI summaries directly into the target Google Drive folder alongside the audio file.
-  - **Multi-Part Session Folder Integration**: Extended to multi-part sequential sessions (`organizeDriveSequentialSessionArtifacts`), renaming every session part chronologically (`[YYYY-MM-DD] <Session Title> - Part X of Y.<ext>`) and uploading a master session companion document with per-part metadata.
-- **Personal Audio Tagging Taxonomy (The "Who, When, Where" Update)**:
-  - Enriched database schema (`locationName`, `activeSpeakersCsv`, `mentionedPeopleCsv` columns inside `Transcription` entity, with full Room Version 8 to Version 9 migration logic).
-  - Modern, responsive card layout inside `SingleRecordingCard` displaying these taxonomy fields with clean, dedicated Material 3 icons (**Place**, **People**, **Person**).
-  - High-performance, JSON-schema guided Gemini post-processing pipeline utilizing the `responseMimeType = "application/json"` config. Automatically extracts high-quality inferred locations, active speaker rosters, and mentioned entities directly from the conversation.
-  - Formatted JSON data portability: fully integrated new tagging fields into existing JSON exports (`exportTranscriptionToJson`, `exportSessionToJson`, `exportAllTranscriptionsToJson`) and JSON import/restore engines (`parseRecordObject`), preserving historical and migrated database backups seamlessly.
-- **Google Drive Storage & Automated Cloud File Management**:
-  - Full Google Drive OAuth integration supporting standard Google Sign-In with the modern, secure `drive.file` scope.
-  - Interactive, dynamic **Connect / Disconnect Google Drive** action deck inside `SettingsScreen` with user email identification feedback.
-  - **Automated Audio Cloud-Uploader Engine**: Automatically uploads single-part imports (`transcribeAudioUri`) and multi-part recording sessions (`transcribeSequentialSession`) chronological parts directly to the user's Google Drive space upon successful transcription selection.
-  - **Permanent Cloud Association**: Captures and maps permanent Google Drive File IDs (`driveFileId`) inside the Room Database (Schema Version 8 migration).
-  - **Transparent Cloud Fallback Streaming**: High-performance streaming direct from Google Drive's API (`alt=media`) using custom headers containing secure Bearer authentication tokens inside `PlaybackScreen`'s `MediaPlayer` engine. Safely activates whenever local cached audio files are missing or cleared, preserving continuous, zero-storage playback.
-- **Multi-Part Sessions Phase 3 (Gapless Playback & Cumulative Transcript Engine)**: 
-  - Seamless auto-advance across sequential parts in the player.
-  - Unified cumulative waveform visualizer with global scrubbing and segment cut markers.
-  - Continuous cumulative transcript line tracking with global millisecond positioning.
-- **OpenRouter & Groq Provider Execution**: Configured OpenRouter (Claude Opus) and Groq (Llama3) API key routing in the "High Thinking" complex query pipeline.
-- **Multi-Part Sequential Audio Session Import & Pipeline (Phase 1)**:
-  - Multi-file audio picker allowing selection of single or multiple sequential recording parts.
-  - Smart natural file sequence analysis (`analyzeSelectedFilesForSequence`) with natural numeric sorting and timestamp detection.
-  - Interactive **Sequence Confirmation Bottom Sheet**:
-    - Displays detected parts with part numbers, file names, and durations.
-    - Customizable Session Title input.
-    - Quick Up/Down reorder controls to verify and adjust the exact playback sequence.
-  - Sequential streaming transcription engine processing each part in chronological order with live progress feedback.
-  - Consolidated **Master AI Summary** synthesizing high-level executive overview, chronological discussion points, and action items across all parts.
-  - Room database schema version 7 (`Transcription.kt`, `TranscriptionDao.kt`, `AppDatabase.kt`) with `sessionId`, `partIndex`, `totalParts`, `sessionTitle`, and `partDurationMs` fields.
-- **Grouped Multi-Part Session Cards in Journal/History (Phase 2)**:
-  - Unified `JournalEntry` abstraction supporting standalone recordings and connected session groups.
-  - **Master Session Card (`MasterSessionCard`)**:
-    - Distinct visual identity with `QueueMusic` badge and bold session title.
-    - Status pills indicating total linked parts, aggregated playback duration, and Gemini model used.
-    - Highlighted **Master AI Summary** card surface presenting the unified multi-part synthesis at a glance.
-    - Session-level action suite: "Play Session", "Export Session JSON", and "Delete Session" with confirmation dialog.
-    - Interactive **Parts Sequence List** showing each part with part number badges ("Part 1 of 3"), individual duration, speaker labels, quick "Play Part" action, and expandable inline transcript views with audio players.
-    - Integrated multi-select mode: selecting a master session automatically batches all linked part records.
-  - Full backward compatibility for standalone single-recording cards (`SingleRecordingCard`).
-  - Session JSON Export & Import parsing supporting multi-part session files and standard backups.
-- **Audio File Selection & Local Caching**: File picker for audio files (AAC, M4A, MP3, WAV) with local cache copying for persistent playback access.
-- **Metadata & Timestamp Parsing**: Extracts recording timestamps from audio file metadata or file naming conventions (e.g. `YYYY-MM-DD_HH-MM-SS`).
-- **Real-Time Streaming Transcription (Gemini AI)**: Live streaming speech-to-text using `gemini-3.5-flash` with Server-Sent Events (SSE) and incremental UI updates.
-- **Speaker Diarization & Labeling**: Automatic parsing and badge coloring of distinct speaker turns (`Speaker A:`, `Speaker B:`) with timestamps.
-- **Automated AI Highlights & Summary**: Generates concise executive summaries immediately after transcription completion.
-- **Dynamic Waveform Visualizers**:
-  - Processing visualizer: Animated traveling sinusoidal waveform during audio upload and processing.
-  - Playback visualizer: Canvas-based interactive audio waveform representing playback position.
-- **Dedicated Audio Playback Screen & Interactive Waveform Scrubbing**:
-  - Distinct, focused full-screen playback space (`PlaybackScreen.kt`) with back navigation and clipboard export.
-  - Interactive touch-to-seek and horizontal drag scrubbing on a 52-bar dynamic waveform canvas (`InteractiveWaveformVisualizer`).
-  - Real-time scrubbing progress feedback with timestamp indicators, scrubber playhead line, and indicator pin.
-  - Comprehensive player deck: Play/Pause hero button, ±10s fast-forward/rewind, speed toggle (0.75x, 1.0x, 1.25x, 1.5x, 2.0x), and restart.
-  - Synchronized interactive transcript with **Real-Time Line-by-Line Timestamp Highlighting**:
-    - Automatic identification and visual highlighting of the exact active transcript line matching the current audio timestamp.
-    - Prominent active line styling: primary container background glow, left vertical accent indicator bar, high-contrast typography, live badge ("PLAYING" / "CURRENT"), and intra-line linear playback progress indicator.
-    - Smart line parser (`parseTranscriptLines`) handling explicit timestamps, speaker tags, and intelligent time interpolation across lines.
-    - Smooth auto-scrolling synchronization keeping the active transcript line centered in view as playback progresses, with an "Auto-Scroll ON/OFF" toggle chip.
-    - Interactive tap-to-seek on any transcript line or timestamp pill to jump playback directly.
-    - In-transcript search filter with real-time keyword highlighting.
-  - Seamless entry points: "Play / Review" pill buttons on history cards, expanded card action, and direct "Open Player" button on the latest transcription card.
-- **Built-in Audio Player**: Play, pause, 10s forward/rewind, and adjustable playback speeds (0.5x, 1.0x, 1.5x, 2.0x).
-- **Keyword Highlighting**: Automatically highlights meeting and domain keywords (e.g. action items, deadlines, technical terms).
-- **Complex Query ("High Thinking")**: Dedicated query field powered by `gemini-3.1-pro-preview` with high thinking configuration for deep analysis of transcripts.
-- **Local Persistence (Room Database & Transcription Entity)**: Dedicated Room database (`AppDatabase`, `TranscriptionDao`, `TranscriptionRepository`) with the `Transcription` entity (`tableName = "transcriptions"`) storing transcription text (`transcription`), speaker labels (`speakerLabels`), and associated audio file paths (`audioFilePath`), along with ID, timestamps, AI summaries, category, and model metadata.
-- **Journal History Screen**: Organized list with chronological groupings ("Today", "Yesterday", "This Week", "Older").
-- **Real-Time Search & Filtering**: Instant filter across transcript text, summaries, speaker names, and dates.
-- **Batch Deletion**: Multi-select mode with checkboxes to batch-delete records.
-- **Speaker Renaming**: Inline editor to assign custom names to speakers.
-- **Single Record JSON Export**: Export individual transcription records as formatted JSON files via Android Storage Access Framework.
-- **Full Database Export & Import (JSON Backup & Restore)**: Export complete database to portable JSON (`Download JSON`) and restore/import records (`Upload JSON`) supporting single or batch arrays for lossless offline migration.
-- **Visual Error & Success Banners (Zero Silent Failures)**: Persistent, dismissible Material 3 visual error and info banners directly on-screen, completely eliminating silent console-only exceptions.
-- **Mobile Viewport & Safe Drawing (`viewport-fit=cover`)**: Full edge-to-edge drawing under system gesture bars with `WindowInsets.safeDrawing` in Scaffold.
-- **Pixel 8 Pro Touch Ergonomics**: Enforced minimum 48dp x 48dp touch targets across all buttons, icon actions, search inputs, and chips.
-- **Multi-Provider AI Settings (BYOK)**: Key management and provider selection for Google Gemini, OpenRouter, and Groq.
-- **Theme Customization**: Full Material 3 support for System Default, Light Mode, and Dark Mode.
-- **Account & Cloud Synchronization**: Firebase Email/Password authentication, real-time Firestore sync for transcripts and multi-part sessions, and full local offline JSON import/export data portability.
-- **Google Drive Removal Completed**: Fully decoupled legacy Google Drive dependencies, API services, and connection UI in favor of unified local storage and Firebase Cloud sync.
+- **Deterministic Debug APK Naming**:
+  - Configured Gradle Kotlin DSL task in `app/build.gradle.kts` to output the debug APK as `debug-compass-sf.apk`.
+  - Automatically triggers on `./gradlew assembleDebug` and `./gradlew assemble` builds, placing the final artifact at `app/build/outputs/apk/debug/debug-compass-sf.apk` without modifying release build settings.
+- **CI/CD Canonical Workflow & Credential Hardening**:
+  - Consolidated all workflow files into a single, clean `.github/workflows/build-apk.yml`.
+  - Resolved `sdkmanager` failure by explicitly configuring modern, non-obsolete SDK packages (`platform-tools`, `platforms;android-36`, `build-tools;36.0.0`) in `android-actions/setup-android@v3` and preventing obsolete `tools` package resolution.
+  - Removed old deprecated workflow variants (`build-apk-balanced-hybrid_Version5.yml`, `build-apk-fast-resilient_Version5.yml`, `build-apk-high-feedback_Version5.yml`).
+  - Configured automated triggers on `push` and `pull_request` to `main`, plus `workflow_dispatch` with manual `diagnostics` input (normal, verbose, debug).
+  - Configured least-privilege `contents: read` permissions and concurrency run cancellation.
+  - Hardened credential security: removed hardcoded fallback API keys in `app/build.gradle.kts` and `AiService.kt`, strictly sourcing `GEMINI_API_KEY` from environment / GitHub repository secrets with graceful offline fallback.
+- **Settings & Modularity (Chunk 3)**: Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+), mobility/wheelchair accessibility priority toggle, and dietary filter presets (Halal, Vegetarian, Kosher). All fully wired into Find, EBT, Now, and Map screens.
+- **Now Screen (Today's Navigator Dashboard)**:
+  - Time-of-day greeting ("Good morning", "Good afternoon", "Good evening, traveler") with subtitle.
+  - Quick Category shortcut pills (Food, Shelter, Hygiene, Connect, EBT/Benefits, Medical) routing to Find tab with preset filter.
+  - "My Day Checklist" task summary card with direct one-tap toggle completion.
+  - "Open Right Now in SF" real-time spotlight cards dynamically verified against current time and day schedule blocks.
+- **Dedicated Fullscreen Map Screen (`Screen.Map` / `MapScreen`)**:
+  - Fullscreen, dedicated street cartography navigation page replacing previous awkward embedded views.
+  - Quick-access entry points: Top Bar Map shortcut button on primary tabs, "Explore Map" button on the Now dashboard, and seamless category-linked transitions from Find and Directory views.
+  - Floating top search and category filter bar with instant keyboard dismissal on touch.
+  - 100% offline, zero-API-key hardware-accelerated 60/120fps vector cartography of San Francisco Peninsula.
+  - Dynamic marker clustering grouping pins when zoomed out to prevent visual clutter, expanding on zoom or tap.
+  - Category-coded badges with emoji glyphs and real-time "Open Now" green status indicator dots.
+  - Live GPS radar beacon with pulsing broadcast wave and direct directional compass line to inspected resources.
+  - Floating action controls (Zoom +, Zoom -, Recenter on User/Downtown, Layer labels toggle).
+  - Floating bottom preview card with one-tap phone call, zero-cost Google Maps / system navigation handoff, and detailed inspection route.
+- **Find Screen (Directory Search & Filtering)**:
+  - Real-time text search across resource names, summaries, descriptions, sources, and tags.
+  - Multi-axis filtering: Category chips (All, Food, Shelter, Hygiene, Health, Crisis, ID/Docs, Benefits, Legal, Connect), Neighborhood dropdown (Tenderloin, SoMa, Mission, etc.), and Data Source dropdown (ShelterTech SF Service Guide, DataSF, 211 Bay Area).
+  - Quick-action toggle filters: Open Now (verified against current time), Favorites Only, and Hidden items.
+  - Dedicated "Map" switcher action seamlessly routing to the full-screen Map experience with current category filters preserved.
+- **Ask Screen (Navigator AI - Gemini Integration)**:
+  - Natural language street navigation and resource consultation powered by Gemini 3.5 Flash via Retrofit.
+  - Query input with optional neighborhood filter and "Open now only" toggle constraint.
+  - Structured response rendering: conversational guidance summary, numbered logical next steps, and specific database-linked "Navigator Picks" with justification.
+  - Built-in offline fallback matcher if API key is unconfigured or network is unavailable.
+- **Day Screen (My Day & Checklist Engine)**:
+  - Task manager with categorized tags (appointment, errand, document, benefit, housing, health, other).
+  - Quick task creation dialog (title, category, priority, notes) and task deletion/completion.
+  - Native **Swipe-to-Dismiss Gestures**: Interactive right/left swiping on task rows to quickly complete or delete items with spring physics and color-coded backgrounds.
+  - Automated daily plan generation organizing stops, estimated hours, and service notes.
+- **EBT Screen (Restaurant Meals Program Guide)**:
+  - Comprehensive searchable directory of San Francisco CalFresh EBT hot meal restaurant locations.
+  - Cuisine filter (Burgers, Mexican, Halal, Pizza, etc.) and neighborhood filter.
+  - Favorites filter, chain vs local restaurant filter, and "Open Now" filter.
+  - Educational collapsible banner explaining EBT card coding requirements and restaurant checkout rules.
+  - Community submission modal to report new EBT hot-meal accepting vendors.
+- **Detail Screen**:
+  - Detailed resource overview: Category badge, neighborhood, full address with direct Google Maps intent trigger, phone with dialer intent launch, website link.
+  - Live open/closed status badge and complete 7-day schedule matrix.
+  - Intake requirements, documents to bring, eligibility criteria, and cost indicators.
+  - Spoken language badges and AI street tips.
+  - Community verification badge and verification tracking timestamp.
+  - "Log a Visit" flow recording outcome (Got help, Turned away, Closed, etc.), wait time, 5-star rating, and feedback notes.
+  - Personal private user notes saved directly to Room database.
+- **Add Screen (Smart Ingestion & Manual Entry)**:
+  - **Camera/Photo Capture Ingestion**: Visual document intake for flyers and brochures using the zero-permission Android Photo Picker.
+  - **Pinch-to-Zoom Image Viewer**: Tap any flyer thumbnail to open a full-screen, interactive image viewer with pinch-to-zoom and pan gestures to verify text while parsing data.
+  - AI-assisted unstructured flyer/text parsing into structured database fields.
+  - Manual entry fallback editor for submitting new community resources.
+- **Settings & Modularity Enhancements (Chunk 1 & Chunk 2)**:
+  - **Chunk 1: Navigation & Workspace Config**: Configure default initial landing screen (Now, Map, Find, or Day), dynamic reorderable 2-6 bottom bar navigation tabs, persistent default SF neighborhood anchor, and quick workspace reset.
+  - **Chunk 2: Map & Cartography Controls**:
+    - **Map Vector Layer Toggles**: Dedicated controls for Transit Lines & Subway (BART tunnels, Muni Metro light rail routes, and station nodes), Neighborhood Boundary Outlines (Tenderloin, SoMa, Mission, Civic Center, Chinatown, Castro, etc.), and Street Names & Landmark Badges (City Hall, Ferry Bldg, etc.).
+    - **Marker Clustering Density Selector**: Granular clustering mode selection (`Tight` / 32dp, `Balanced` / 50dp, `Spread` / 75dp) controlling how closely grouped pins merge into numbered cluster bubbles.
+    - **Battery Saver / Reduced Motion Mode**: Toggle that disables high-frequency canvas animations and continuous pulsing GPS radar waves to minimize battery consumption when walking outdoors.
+    - **Quick Reset for Map Settings**: Dedicated reset button restoring all cartography layer options, clustering radius, and animations to recommended defaults.
+    - **Room Persistence**: All map cartography preferences automatically persist in Room SQLite database.
+  - **Quick Settings Index & Jump Navigation**: Fast-jump index grid at the top of the Settings screen with interactive direct-scroll buttons (Navigation, Themes, Accents, Text Size, Display, Map Layers, App Icon, Backup & Restore, Hidden Manager, App Statistics), matching numbered section badges on each card, quick "Index ↑" return buttons, and a floating animated "Scroll to Top" button.
+- **Settings & Theming**:
+  - 5 Theme Modes: Midnight Ink (default dark), OLED Pure Black (battery saver), Daylight Fog (high-contrast light mode), Warm Sunset (warm amber charcoal), Pacific Marine (oceanic teal).
+  - 5 Accent Palettes: Beacon Gold, Golden Gate Rust, Pacific Emerald, Ocean Cyan, Mission Violet.
+  - Accessible Font Scaling: Standard (100%), Large (115%), Extra Large (130%).
+  - High-contrast mode toggle and Compact listing density mode.
+  - App launcher icon preference picker.
+- **Data Layer & Persistence**:
+  - Offline-first Android Room Database (`compass_sf_database`) persisting Resources, Visits, Tasks, Plans, RmpLocations, AppSettings, and Captures.
+  - Automated database seeding from curated SF datasets (`SeedData.kt`).
+  - Repository layer exposing reactive Kotlin `StateFlow` streams.
+- **Data Portability & Backup (Export & Import)**:
+  - Settings section with live counter of personal records (Favorites, Private Notes, Visit History Logs, Checklist Tasks).
+  - Export Data (Download JSON) via Android document storage picker (`ActivityResultContracts.CreateDocument`).
+  - Share Backup via Android share sheet (`Intent.ACTION_SEND`).
+  - Import Data (Upload JSON) via Android document file picker (`ActivityResultContracts.OpenDocument`).
+  - Direct "Paste Text" backup restore for clipboard/cross-device transfers.
+  - Interactive Pre-restore Review dialog summarizing records found with safe merge into existing database without data loss.
+  - Real-time success and error banners with itemized summary of records restored.
+- **Device Location & Walking Distance Proximity Sorting**:
+  - Optional zero-cloud on-device location engine using Android `LocationManager` (GPS / Network) or manual San Francisco neighborhood anchor selector (Tenderloin, Civic Center, SoMa, Mission, Bayview, etc.).
+  - 100% local, on-device Haversine distance math—no location coordinates or telemetry are ever sent over network/APIs.
+  - Interactive top `LocationBar` on **Now Screen**, **Find Screen**, and **EBT Screen** displaying current location status with one-tap location picker dialog.
+  - One-tap "Sort by Distance" toggle dynamically reordering available services, meals, and hot-meal restaurants from nearest to farthest.
+  - Visual walking distance badges (e.g. `🚶 0.3 mi` or `🚶 < 250 ft`) displayed across all `ResourceCard` and `RmpCard` components.
+- **Mobile Ergonomics & Safeguards (Pixel 8 Pro Standards)**:
+  - **Edge-to-Edge Native Viewport**: Active `enableEdgeToEdge()` with system bar safe insets and navigation bar padding preventing UI clipping across gesture and 3-button navigation.
+  - **44px / 48dp Minimum Touch Targets**: Full audit across all interactive elements (List/Map switchers, filter toggles, favorite buttons, AssistChips, dropdown triggers, and checklist items) ensuring easy single-handed thumb operation.
+  - **Visual Error Handling**: Comprehensive on-screen visual banners and Toasts for all external intent launches (Maps directions, phone dialers, web links), API queries, and JSON import/export operations, completely eliminating silent failures.
 
 ---
 
 ## [Next Up]
-- *No pending items.*
+- **Settings & Modularity Enhancements**:
+  - **Chunk 4: AI Navigator Customization (Gemini Integration)**: Response format & conciseness style picker (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), Offline-only heuristic fallback toggle, and custom API key / endpoint entry.
+  - **Chunk 5: Privacy, Data Sources & Granular Portability**: Granular backup/restore checkboxes (export/import specific entity sets), ephemeral/incognito search mode, photo cache manager, data source toggles, and database factory re-seeding.
+  - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
+- **Share Resource Card**: Android share sheet integration to quickly text or copy address, hours, and notes for a resource to a friend or client.
+- **Resource Verification & Community Wait Time Analytics**: Extended historical wait time graphing and crowdsourced open-now confirmation telemetry.
 
 ---
 
 ## [Out of Scope]
-- **Google Drive Legacy Sync**: Completely removed in favor of Firebase Firestore and local device storage.
-- **Smart Recurrence & Action Item Tracker**: Highlight recurring action items mentioned across different recorded days (moved to out of scope per user direction).
-- **Direct Microphone Voice Recording**: In-app live microphone recording is excluded; the app focuses on importing and analyzing stored audio files.
-- **Custom Secondary Backend / Node.js Server**: Keep the app entirely client-side and offline-first with optional direct Firebase sync.
-- **Complex Multi-Track Audio Editing / DAW Features**: Keep the focus on speech transcription, AI intelligence, and journaling rather than audio mastering.
-- **Closed Third-Party Telemetry SDKs**: Strictly use direct APIs and client-side privacy-first storage.
+- Cloud multiplayer or multi-device account sync requiring mandatory logins or external user auth.
+- Paid commercial advertisements or sponsored listings.
+- Web-based D3/WebView charting (keeping all UI native in Jetpack Compose).
 
 ---
 
 ## [Files]
-- `.github/workflows/build-apk.yml`: Consolidated production CI workflow with automated triggers, JDK 21, Android SDK 36, dynamic versioned artifact naming, and failure diagnostics.
-- `metadata.json`: Application metadata and platform capabilities for AI Studio.
-- `app/build.gradle.kts`: Gradle build script with dependencies for Compose, Room, Retrofit, and Firebase.
-- `app/src/main/AndroidManifest.xml`: Android application manifest declaring permissions and activities.
-- `app/src/main/java/com/example/MainActivity.kt`: Primary entry activity, top-level navigation tabs (Transcribe, Journal, Speakers), audio picker, player, and transcript viewer.
-- `app/src/main/java/com/example/TranscriptionHistoryScreen.kt`: Journal history UI, timeline grouping, search, dynamic filter bar, batch deletion, speaker chips, and JSON export.
-- `app/src/main/java/com/example/ui/PlaybackScreen.kt`: Dedicated audio playback and review screen with interactive waveform touch scrubbing, timestamp jumping, speaker color badge styling, and Golden Sample assignment.
-- `app/src/main/java/com/example/ui/SpeakerManagementScreen.kt`: Known Speakers Directory, profile management, custom color picker, Golden Sample preview player, and modal speaker details dialog.
-- `app/src/main/java/com/example/ui/MainViewModel.kt`: Central state manager, Gemini streaming transcription logic, multimodal biometric prompt bundling, AI queries, speaker repository coordination, and data sync.
-- `app/src/main/java/com/example/service/RecordingService.kt`: Foreground service managing audio recording, Bluetooth SCO/CommunicationDevice audio routing, PCM to WAV conversion, and MediaStore export.
-- `app/src/main/java/com/example/util/AudioConfigHelper.kt`: Utility for calculating valid buffer sizes and probing supported sample rates for AudioRecord.
-- `app/src/main/java/com/example/util/GoogleSignInErrorClassifier.kt`: Classifier mapping CredentialManager exceptions to specific GoogleSignInResult states.
-- `app/src/test/java/com/example/AudioAndAuthFixesTest.kt`: Unit tests verifying AudioConfigHelper buffer/sample rate calculations and GoogleSignInErrorClassifier exception mapping.
-- `app/src/test/java/com/example/ApiKeySecurityTest.kt`: Unit tests verifying secret sanitization in config files, gitignore protection, and API key redaction.
-- `app/src/test/java/com/example/SessionGroupingAndJournalHardeningTest.kt`: Unit tests verifying multi-part session grouping, part ordering, standalone fallback, multi-select expansion, master summary display, and JSON export/import resilience.
-- `app/src/main/java/com/example/ui/SettingsScreen.kt`: Settings screen for AI provider keys (Gemini, OpenRouter, Groq), appearance theme mode, Firebase cloud sync, and Known Speakers navigation link.
-- `app/src/main/java/com/example/util/AudioSliceExtractor.kt`: Audio segment extraction utility using MediaExtractor/MediaMuxer for verified Golden Sample biometric slices.
-- `app/src/main/java/com/example/api/GeminiApiService.kt`: Retrofit client interfaces, data transfer models, and network clients for Gemini, OpenRouter, and Groq.
-- `app/src/main/java/com/example/db/Transcription.kt`: Room Entity for audio transcriptions, speaker labels, location, and audio file paths.
-- `app/src/main/java/com/example/db/SpeakerProfile.kt`: Room Entity for known speakers, color hex badges, recording statistics, and Golden Sample audio segment references.
-- `app/src/main/java/com/example/db/SpeakerDao.kt`: Data access object for speaker profile queries, upserts, deletion, and golden sample management.
-- `app/src/main/java/com/example/db/SpeakerRepository.kt`: Repository layer mediating between Room SpeakerDao and MainViewModel.
-- `app/src/main/java/com/example/db/LocationProfile.kt`: Room Entity for venue presets, addresses, tiers, and visit statistics.
-- `app/src/main/java/com/example/db/LocationDao.kt`: Data access object for location profile queries, upserts, and user-filtered retrieval.
-- `app/src/main/java/com/example/db/LocationRepository.kt`: Repository layer mediating between LocationDao and MainViewModel.
-- `app/src/main/java/com/example/db/AppDatabase.kt`: Room database initialization, schema versioning, and migration definitions.
-- `app/src/main/java/com/example/db/TranscriptionDao.kt`: Data access object for Room database queries and mutations.
-- `app/src/main/java/com/example/db/TranscriptionRepository.kt`: Repository layer mediating between Room DAO and the ViewModel.
-- `firestore.rules`: Security rules enforcing per-user authorization across Firestore collections.
-- `app/src/main/java/com/example/ui/theme/Color.kt`: M3 color definitions.
-- `app/src/main/java/com/example/ui/theme/Theme.kt`: Material 3 theme wrapper and dynamic color handling.
-- `app/src/main/java/com/example/ui/theme/Type.kt`: Typography definitions.
+- `README.md` - Repository overview and GitHub Actions GEMINI_API_KEY secret configuration guide
+- `.github/workflows/build-apk.yml` - Canonical GitHub Actions Android debug build workflow with diagnostics, caching, and artifact uploads
+- `APP_STATE.md` - Central application state registry and roadmap
+- `metadata.json` - Platform metadata and app identity
+- `app/build.gradle.kts` - Gradle module configuration and dependencies
+- `app/src/main/AndroidManifest.xml` - Android application manifest
+- `app/src/main/res/values/strings.xml` - Android localized strings
+- `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` - Adaptive launcher icon
+- `app/src/main/res/drawable/ic_launcher_background.xml` - Launcher background drawable
+- `app/src/main/res/drawable/ic_launcher_foreground.xml` - Launcher foreground drawable
+- `app/src/main/java/com/example/MainActivity.kt` - Main Activity, top bar, FAB, bottom navigation, and NavHost routing
+- `app/src/main/java/com/example/ui/Screens.kt` - Compose screens (Now, Find, Ask, Day, Ebt, Add, Info, Settings, Detail)
+- `app/src/main/java/com/example/ui/ComposeCanvasMap.kt` - Native Jetpack Compose Canvas vector map engine with gesture pan/zoom, clustering, radar, and preview cards
+- `app/src/main/java/com/example/ui/Navigation.kt` - Screen sealed class definitions and CompassViewModel state management
+- `app/src/main/java/com/example/ui/Theme.kt` - Custom M3 theming system, theme modes, accent palettes, and typography scaling
+- `app/src/main/java/com/example/data/LocationHelper.kt` - 100% on-device Haversine proximity calculations and SF neighborhood anchor resolution
+- `app/src/main/java/com/example/data/Models.kt` - Room entities, data transfer objects, and JSON converters
+- `app/src/main/java/com/example/data/Database.kt` - Room Database definition and ResourceDao interface
+- `app/src/main/java/com/example/data/Repository.kt` - CompassRepository data access layer and DB seeding logic
+- `app/src/main/java/com/example/data/AiService.kt` - Gemini 3.5 Flash REST client, structured parsing, and offline fallbacks
+- `app/src/main/java/com/example/data/SeedData.kt` - Pre-seeded curated SF community resources and EBT restaurant locations
+Updated UI to add filters and presets, and wired them into Find, EBT, Now, and Map screens.

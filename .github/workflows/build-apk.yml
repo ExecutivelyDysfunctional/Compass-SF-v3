@@ -1,23 +1,19 @@
-name: Build Android APK
+name: Build APK
 
 on:
   push:
     branches:
-      - 'main'
-      - 'master'
-    tags:
-      - 'v*'
+      - main
   pull_request:
     branches:
-      - 'main'
-      - 'master'
+      - main
   workflow_dispatch:
     inputs:
       diagnostics:
-        description: 'Diagnostic verbosity level'
+        description: 'Diagnostics log level'
         required: false
+        default: 'normal'
         type: choice
-        default: debug
         options:
           - normal
           - verbose
@@ -27,425 +23,119 @@ permissions:
   contents: read
 
 concurrency:
-  group: build-apk-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build & Package APK
+    name: Build Android Debug APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
-    env:
-      DISPATCH_DIAGNOSTICS: ${{ inputs.diagnostics || 'debug' }}
-      COMMIT_MESSAGE: ${{ github.event.head_commit.message || '' }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Secret Leak Prevention & Security Audit
-        shell: bash
-        run: |
-          echo "::group::🛡️ SECRET LEAK DETECTION & SECURITY AUDIT"
-          echo "Scanning workspace for exposed API keys and sensitive credentials..."
-          FAILED=0
-
-          # Check for exposed Google API keys (AIzaSy...) outside of .env and .example
-          # We look for AIza followed by 35 alphanumeric, underscore, or hyphen characters
-          MATCHES=$(grep -rEn "AIzaSy[0-9A-Za-z_-]{33}" . \
-            --exclude-dir={.git,.gradle,build,outputs} \
-            --exclude="*.log" \
-            --exclude=".env" \
-            --exclude="ExampleUnitTest.kt" \
-            --exclude="ApiKeySecurityTest.kt" 2>/dev/null || true)
-
-          if [ -n "$MATCHES" ]; then
-            echo "::error::🚨 CRITICAL SECURITY ALERT: Real unmasked Google API Key pattern found in codebase!"
-            echo "$MATCHES"
-            FAILED=1
-          else
-            echo "✅ No exposed Google API keys found in tracked source files."
-          fi
-
-          # Ensure .gitignore protects .env and sensitive configs
-          if ! grep -q "\.env" .gitignore 2>/dev/null; then
-            echo "::error::🚨 Security Alert: .env is missing from .gitignore!"
-            FAILED=1
-          fi
-
-          if [ $FAILED -ne 0 ]; then
-            echo "Audit failed! Halting build to prevent publishing sensitive credentials."
-            exit 1
-          fi
-          echo "Security audit passed successfully."
-          echo "::endgroup::"
-
-      - name: Pre-Build System & Environment Audit
-        shell: bash
-        run: |
-          echo "::group::🔍 SYSTEM & PRE-BUILD ENVIRONMENT DIAGNOSTICS"
-          echo "========================================================"
-          echo "Timestamp: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          echo "Runner OS: $(uname -a)"
-          echo "Runner User: $(whoami)"
-          echo "Current Directory: $(pwd)"
-          echo "Environment Variables:"
-          echo "  - ANDROID_HOME=${ANDROID_HOME:-<unset>}"
-          echo "  - ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-<unset>}"
-          echo "  - JAVA_HOME=${JAVA_HOME:-<unset>}"
-          echo "  - GITHUB_REF=${GITHUB_REF:-}"
-          echo "  - GITHUB_SHA=${GITHUB_SHA:-}"
-          echo ""
-          echo "Workspace Root Files:"
-          ls -la
-          echo ""
-          echo "Gradle Directory Structure:"
-          if [ -d "gradle" ]; then
-            find gradle -type f -exec ls -lh {} +
-          else
-            echo "No gradle directory found."
-          fi
-          echo "========================================================"
-          echo "::endgroup::"
-
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
           java-version: '21'
+          distribution: 'temurin'
 
-      - name: Configure Android SDK & License Acceptance
-        shell: bash
-        run: |
-          echo "::group::🔧 ANDROID SDK & LICENSES CONFIGURATION"
-          set +e
-          # Detect or fallback Android SDK path on runner
-          SDK_DIR="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
-          echo "Target Android SDK directory: $SDK_DIR"
-          
-          if [ ! -d "$SDK_DIR" ]; then
-            echo "Warning: SDK directory not found at $SDK_DIR, searching common paths..."
-            SDK_DIR="$(find /usr/local /opt /home/runner -maxdepth 4 -name "cmdline-tools" -type d 2>/dev/null | head -n 1 | sed 's|/cmdline-tools.*||')"
-          fi
-          
-          echo "Configuring ANDROID_HOME and PATH..."
-          echo "ANDROID_HOME=$SDK_DIR" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$SDK_DIR" >> "$GITHUB_ENV"
-          echo "$SDK_DIR/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
-          echo "$SDK_DIR/platform-tools" >> "$GITHUB_PATH"
-
-          # Pre-accept licenses by writing standard license hashes
-          mkdir -p "$SDK_DIR/licenses"
-          echo -e "\n8933bad161af4178b1185d1a37fbf41ea5269c55\nd56f5187479451eabf01fb78af6dfcb131a6481e\n24333f8a63b682449715d4e1fb83a37808d46812" > "$SDK_DIR/licenses/android-sdk-license" 2>/dev/null || true
-          echo -e "\n84831b9409646a918e30573bab4c9c91346d8abd" > "$SDK_DIR/licenses/android-sdk-preview-license" 2>/dev/null || true
-          echo -e "\n33b6a2b64607f11b759f32049cff4ef5081a7f4e" > "$SDK_DIR/licenses/google-gdk-license" 2>/dev/null || true
-
-          # Attempt command-line license acceptance
-          if [ -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
-            echo "Running sdkmanager --licenses..."
-            yes 2>/dev/null | "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null 2>&1 || true
-          elif which sdkmanager >/dev/null 2>&1; then
-            yes 2>/dev/null | sdkmanager --licenses >/dev/null 2>&1 || true
-          fi
-
-          echo "Licenses configured successfully."
-          echo "::endgroup::"
-
-      - name: Prepare Keystore and Environment Secrets
-        shell: bash
-        run: |
-          echo "::group::🔑 KEYSTORE & SECRETS SETUP"
-          set -eo pipefail
-          
-          # 1. Base64 Keystore decoding
-          if [ -f "debug.keystore.base64" ] && [ ! -f "debug.keystore" ]; then
-            echo "Decoding debug.keystore from base64..."
-            base64 -d debug.keystore.base64 > debug.keystore 2>/dev/null || \
-            base64 --decode -i debug.keystore.base64 > debug.keystore 2>/dev/null || true
-          fi
-
-          # 2. Fallback keystore generation
-          if [ ! -f "debug.keystore" ] || [ ! -s "debug.keystore" ]; then
-            echo "Generating fallback debug.keystore..."
-            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          ls -lh debug.keystore
-
-          # 3. .env initialization for Secrets Gradle Plugin
-          if [ ! -f ".env" ] && [ -f ".env.example" ]; then
-            cp .env.example .env
-            echo "Initialized .env from .env.example"
-          elif [ ! -f ".env" ]; then
-            touch .env
-            echo "Created empty .env placeholder"
-          fi
-          echo "::endgroup::"
-
-      - name: Set up Gradle Action
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
         with:
-          gradle-version: '9.3.1'
-          validate-wrappers: false
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0'
 
-      - name: Ensure Gradle Wrapper Executable
-        shell: bash
-        run: |
-          echo "::group::⚙️ GRADLE WRAPPER INITIALIZATION"
-          if [ ! -f "./gradlew" ]; then
-            echo "Generating wrapper via gradle wrapper..."
-            gradle wrapper --gradle-version 9.3.1 --distribution-type bin || true
-          fi
-
-          if [ -f "./gradlew" ]; then
-            chmod +x ./gradlew
-            echo "Wrapper ./gradlew is executable."
-          else
-            echo "Wrapper script not generated, build will invoke gradle directly."
-          fi
-          echo "::endgroup::"
-
-      - name: Configure Gradle Build Flags
-        id: build_mode
-        shell: bash
+      - name: Accept Android SDK licenses and install components
         run: |
           set -euo pipefail
-          mode="$DISPATCH_DIAGNOSTICS"
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
 
-          if printf '%s' "$COMMIT_MESSAGE" | grep -qiF '[build-apk-debug]'; then
-            mode="debug"
-          elif printf '%s' "$COMMIT_MESSAGE" | grep -qiF '[build-apk-verbose]'; then
-            mode="verbose"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Ensure debug keystore exists
+        run: |
+          set -euo pipefail
+          if [ ! -f debug.keystore ]; then
+            if [ -f debug.keystore.base64 ]; then
+              echo "Decoding debug.keystore from base64"
+              (base64 -d -i debug.keystore.base64 > debug.keystore 2>/dev/null) || (base64 --decode debug.keystore.base64 > debug.keystore 2>/dev/null) || true
+            fi
+          fi
+          if [ ! -f debug.keystore ] || [ ! -s debug.keystore ]; then
+            echo "Generating fallback debug.keystore"
+            keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
           fi
 
-          case "$mode" in
-            normal)
-              gradle_args=(
-                assembleDebug
-                --no-daemon
-                --console=plain
-                --stacktrace
-              )
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+
+      - name: Determine Gradle diagnostics flags
+        id: diagnostics-flags
+        run: |
+          MODE="${{ inputs.diagnostics || 'normal' }}"
+          case "$MODE" in
+            debug)
+              echo "flags=--debug --stacktrace" >> "$GITHUB_OUTPUT"
               ;;
             verbose)
-              gradle_args=(
-                assembleDebug
-                --no-daemon
-                --console=plain
-                --stacktrace
-                --info
-              )
-              ;;
-            debug)
-              gradle_args=(
-                assembleDebug
-                --no-daemon
-                --console=plain
-                --stacktrace
-                --info
-                --debug
-              )
+              echo "flags=--info --stacktrace" >> "$GITHUB_OUTPUT"
               ;;
             *)
-              gradle_args=(
-                assembleDebug
-                --no-daemon
-                --console=plain
-                --stacktrace
-                --info
-              )
+              echo "flags=--stacktrace" >> "$GITHUB_OUTPUT"
               ;;
           esac
 
-          {
-            echo "mode=$mode"
-            printf 'args='
-            printf '%q ' "${gradle_args[@]}"
-            printf '\n'
-          } >> "$GITHUB_OUTPUT"
-
       - name: Build Debug APK
-        shell: bash
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          set -o pipefail
-          echo "::group::🚀 GRADLE EXECUTION"
-          echo "Diagnostics Mode: ${{ steps.build_mode.outputs.mode }}"
-          echo "Build Command: ./gradlew ${{ steps.build_mode.outputs.args }}"
-          echo "========================================================"
-
-          if [ -x "./gradlew" ]; then
-            BUILD_EXEC="./gradlew"
-          else
-            BUILD_EXEC="gradle"
-          fi
-
-          $BUILD_EXEC ${{ steps.build_mode.outputs.args }} 2>&1 | tee build-output.log
-          BUILD_STATUS=${PIPESTATUS[0]}
-
-          echo "========================================================"
-          echo "Gradle Exit Code: $BUILD_STATUS"
-          echo "::endgroup::"
-          exit $BUILD_STATUS
+          set -euo pipefail
+          ./gradlew assembleDebug --no-daemon --console=plain ${{ steps.diagnostics-flags.outputs.flags }} 2>&1 | tee build.log
 
       - name: Verify APK output
-        shell: bash
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          apk_files=(app/build/outputs/apk/debug/*.apk)
-          if [ "${#apk_files[@]}" -eq 0 ]; then
-            echo "Error: No debug APK was produced."
+          if compgen -G "app/build/outputs/apk/debug/*.apk" > /dev/null; then
+            echo "Debug APK successfully generated:"
+            ls -la app/build/outputs/apk/debug/*.apk
+          else
+            echo "Error: Expected APK artifact not found in app/build/outputs/apk/debug/" >&2
             exit 1
           fi
-          echo "Generated APK: ${apk_files[0]}"
-          ls -lh "${apk_files[0]}"
 
-      - name: Read APK metadata and versioning
-        id: apk_meta
-        shell: bash
-        env:
-          REPO_NAME: ${{ github.event.repository.name || 'TranscribeAI' }}
-        run: |
-          set -euo pipefail
-          shopt -s nullglob
-          apk_files=(app/build/outputs/apk/debug/*.apk)
-          apk="${apk_files[0]}"
-
-          version_name="1.0"
-          version_code="1"
-
-          # Dynamically locate aapt / aapt2 from any installed build-tools
-          aapt_bin="$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -name aapt -type f 2>/dev/null | sort -V | tail -n 1 || true)"
-          if [ -n "$aapt_bin" ] && [ -x "$aapt_bin" ]; then
-            badging="$("$aapt_bin" dump badging "$apk" 2>/dev/null || true)"
-            parsed_vn="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
-            parsed_vc="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
-            [ -n "$parsed_vn" ] && version_name="$parsed_vn"
-            [ -n "$parsed_vc" ] && version_code="$parsed_vc"
-          fi
-
-          safe_version_name="$(printf '%s' "$version_name" | sed 's/[^A-Za-z0-9._-]/-/g')"
-          artifact_name="${REPO_NAME}-v${safe_version_name}-code${version_code}-build${GITHUB_RUN_NUMBER}-debug-apk"
-
-          echo "Detected version: $version_name (code: $version_code)"
-          echo "Artifact name: $artifact_name"
-
-          {
-            echo "version_name=$version_name"
-            echo "version_code=$version_code"
-            echo "artifact_name=$artifact_name"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Upload Debug APK Artifact
+      - name: Upload APK Artifact
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.apk_meta.outputs.artifact_name }}
+          name: Compass-SF-debug-apk
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
 
-      - name: Extract and Log Failed Section
+      - name: Collect build failure diagnostics
         if: failure()
-        shell: bash
         run: |
-          set +e
-          echo "::group::❌ FAILING SECTION DETAILS"
-          echo "========================================================"
-          echo "             BUILD FAILURE SECTION SUMMARY              "
-          echo "========================================================"
-
-          # Initialize Step Summary Header
-          {
-            echo "## ❌ Build APK Failure Summary"
-            echo "- **Workflow Run:** #$GITHUB_RUN_NUMBER"
-            echo "- **Trigger:** \`$GITHUB_EVENT_NAME\` (\`$GITHUB_REF_NAME\` @ \`${GITHUB_SHA:0:7}\`)"
-            echo "- **Diagnostics Mode:** \`${{ steps.build_mode.outputs.mode || 'debug' }}\`"
-            echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          # Extract failing section from build-output.log
-          if [ -f "build-output.log" ]; then
-            echo "--- Extracting Gradle failure section ---"
-            
-            # Primary extraction: "* What went wrong:" block to end of failure notes
-            sed -n '/\* What went wrong:/,$p' build-output.log > failure-section.log
-            
-            # Fallback 1: grep around keywords if structured block is absent
-            if [ ! -s "failure-section.log" ]; then
-              grep -E -C 8 "(FAILURE:|BUILD FAILED|Execution failed for task|e: |Compilation error|error: |Exception)" build-output.log > failure-section.log || true
-            fi
-            
-            # Fallback 2: grab last 120 lines
-            if [ ! -s "failure-section.log" ]; then
-              tail -n 120 build-output.log > failure-section.log
-            fi
-
-            cat failure-section.log
-
-            {
-              echo "### 🔍 Specific Failing Section & Error Log"
-              echo '```text'
-              cat failure-section.log | head -n 150
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          else
-            echo "No build-output.log found. The build failed during a pre-build step before Gradle execution." | tee failure-section.log
-            {
-              echo "### ⚠️ Pre-Build Failure Detected"
-              echo "The build failed during pre-build environment configuration before Gradle could execute."
-              echo "Review the 'Pre-Build System & Environment Audit' and 'Android SDK & Licenses Configuration' job steps for details."
-            } >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p diagnostics
+          echo "=== Java Version ===" > diagnostics/environment.txt
+          java -version 2>&1 >> diagnostics/environment.txt || true
+          echo -e "\n=== Gradle Version ===" >> diagnostics/environment.txt
+          ./gradlew --version 2>&1 >> diagnostics/environment.txt || true
+          echo -e "\n=== Build Outputs Directory ===" >> diagnostics/environment.txt
+          ls -laR app/build/outputs/ 2>&1 >> diagnostics/environment.txt || true
+          if [ -f build.log ]; then
+            cp build.log diagnostics/
           fi
-          
-          echo "========================================================"
-          echo "::endgroup::"
+          if [ -d app/build/reports ]; then
+            cp -r app/build/reports diagnostics/
+          fi
 
-      - name: Collect diagnostics on failure
-        if: failure()
-        shell: bash
-        run: |
-          set +e
-          {
-            echo '=== Workflow Execution Context ==='
-            echo "Repository: $GITHUB_REPOSITORY"
-            echo "Ref: $GITHUB_REF"
-            echo "Commit: $GITHUB_SHA"
-            echo "Run Number: $GITHUB_RUN_NUMBER"
-            echo "Diagnostics Mode: ${{ steps.build_mode.outputs.mode || 'debug' }}"
-            echo
-            echo '=== Java & Gradle Environment ==='
-            java -version
-            if which gradle >/dev/null 2>&1; then
-              gradle --version
-            elif [ -f "./gradlew" ]; then
-              ./gradlew --version
-            fi
-            echo
-            echo '=== Android SDK Environment ==='
-            echo "ANDROID_HOME=${ANDROID_HOME:-}"
-            echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-}"
-            if which sdkmanager >/dev/null 2>&1; then
-              sdkmanager --list_installed 2>/dev/null | tail -n 80
-            fi
-            echo
-            echo '=== Project Structure & Build Outputs ==='
-            find . -maxdepth 4 -not -path '*/.*' 2>/dev/null | sort | head -n 150
-          } | tee diagnostics.txt
-
-      - name: Upload Failure Diagnostics
+      - name: Upload Diagnostics on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ github.event.repository.name || 'build' }}-run-${{ github.run_number }}-failure-diagnostics
-          path: |
-            failure-section.log
-            build-output.log
-            diagnostics.txt
-            app/build/reports/
-            app/build/outputs/logs/
-          if-no-files-found: warn
-          retention-days: 14
-
-
-
+          name: build-failure-diagnostics
+          path: diagnostics/
+          retention-days: 7
