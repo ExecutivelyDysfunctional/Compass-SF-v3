@@ -95,9 +95,10 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val demographicPresets = mutableStateOf<Set<DemographicPreset>>(emptySet())
     val accessibilityMobilityMode = mutableStateOf(false)
     val dietaryPresets = mutableStateOf<Set<DietaryPreset>>(emptySet())
+    val excludeNonLocationResources = mutableStateOf(false)
 
     val hasActivePresets: Boolean
-        get() = demographicPresets.value.isNotEmpty() || accessibilityMobilityMode.value || dietaryPresets.value.isNotEmpty()
+        get() = demographicPresets.value.isNotEmpty() || accessibilityMobilityMode.value || dietaryPresets.value.isNotEmpty() || excludeNonLocationResources.value
 
     // --- Location & Distance Sorting UI State ---
     val userLocation = mutableStateOf<UserLocation?>(null)
@@ -198,6 +199,9 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                     val parsed = raw.split(",").mapNotNull { DietaryPreset.fromId(it.trim()) }.toSet()
                     dietaryPresets.value = parsed
                 }
+            }
+            repository.getSetting("exclude_non_location")?.let {
+                excludeNonLocationResources.value = it.toBooleanStrictOrNull() ?: false
             }
 
             val locType = repository.getSetting("location_type") ?: "none"
@@ -813,14 +817,24 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun toggleExcludeNonLocationResources(enabled: Boolean? = null) {
+        val next = enabled ?: !excludeNonLocationResources.value
+        excludeNonLocationResources.value = next
+        viewModelScope.launch {
+            repository.saveSetting("exclude_non_location", next.toString())
+        }
+    }
+
     fun clearAllPresets() {
         demographicPresets.value = emptySet()
         accessibilityMobilityMode.value = false
         dietaryPresets.value = emptySet()
+        excludeNonLocationResources.value = false
         viewModelScope.launch {
             repository.saveSetting("demographic_presets", "")
             repository.saveSetting("accessibility_mobility_mode", "false")
             repository.saveSetting("dietary_presets", "")
+            repository.saveSetting("exclude_non_location", "false")
         }
     }
 

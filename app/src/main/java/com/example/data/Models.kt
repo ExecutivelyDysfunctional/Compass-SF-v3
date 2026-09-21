@@ -436,3 +436,19 @@ object PresetMatcher {
         }
     }
 }
+
+fun Resource.isNonLocationOrHelpline(): Boolean {
+    if (this.phoneLine) return true
+    if (this.lat == null || this.lng == null) return true
+    if (this.address.isBlank() ||
+        this.address.equals("N/A", ignoreCase = true) ||
+        this.address.contains("Phone", ignoreCase = true) ||
+        this.address.contains("Helpline", ignoreCase = true) ||
+        this.address.contains("Hotline", ignoreCase = true) ||
+        this.address.contains("Online", ignoreCase = true) ||
+        this.address.contains("Virtual", ignoreCase = true)
+    ) return true
+    val nonLocTags = setOf("helpline", "hotline", "phone", "virtual", "online", "non-location", "phoneline", "call-in", "remote")
+    if (this.tags.any { tag -> nonLocTags.contains(tag.lowercase().trim()) }) return true
+    return false
+}

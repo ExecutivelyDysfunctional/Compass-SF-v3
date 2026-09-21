@@ -387,9 +387,10 @@ fun NowScreen(
     val sortByDistance by viewModel.sortByDistance
     var showLocationDialog by remember { mutableStateOf(false) }
     
-    val openNowList = remember(resources, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value) {
+    val openNowList = remember(resources, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value, viewModel.excludeNonLocationResources.value) {
         val openResources = resources.filter { res ->
             !res.hidden && isResourceOpen(res.open24, res.hours) &&
+            (!viewModel.excludeNonLocationResources.value || !res.isNonLocationOrHelpline()) &&
             PresetMatcher.matchesDemographic(res, viewModel.demographicPresets.value) &&
             PresetMatcher.matchesAccessibility(res, viewModel.accessibilityMobilityMode.value) &&
             PresetMatcher.matchesDietary(res, viewModel.dietaryPresets.value)
@@ -663,7 +664,7 @@ fun FindScreen(
         "211" to "211 Bay Area"
     )
 
-    val filteredList = remember(resources, searchQuery, selectedCategory, selectedNeighborhood, selectedSource, filterOpenNow, filterFavorites, filterHidden, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value) {
+    val filteredList = remember(resources, searchQuery, selectedCategory, selectedNeighborhood, selectedSource, filterOpenNow, filterFavorites, filterHidden, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value, viewModel.excludeNonLocationResources.value) {
         val list = resources.filter { res ->
             val matchesSearch = res.name.contains(searchQuery, ignoreCase = true) || 
                     res.summary.contains(searchQuery, ignoreCase = true) ||
@@ -676,12 +677,13 @@ fun FindScreen(
             val matchesOpen = !filterOpenNow || isResourceOpen(res.open24, res.hours)
             val matchesFav = !filterFavorites || res.favorite
             val matchesHidden = if (filterHidden) res.hidden else !res.hidden
+            val matchesNonLocation = !viewModel.excludeNonLocationResources.value || !res.isNonLocationOrHelpline()
 
             val matchesDemographic = PresetMatcher.matchesDemographic(res, viewModel.demographicPresets.value)
             val matchesAccessibility = PresetMatcher.matchesAccessibility(res, viewModel.accessibilityMobilityMode.value)
             val matchesDietary = PresetMatcher.matchesDietary(res, viewModel.dietaryPresets.value)
 
-            matchesSearch && matchesCategory && matchesNeighborhood && matchesSource && matchesOpen && matchesFav && matchesHidden && matchesDemographic && matchesAccessibility && matchesDietary
+            matchesSearch && matchesCategory && matchesNeighborhood && matchesSource && matchesOpen && matchesFav && matchesHidden && matchesNonLocation && matchesDemographic && matchesAccessibility && matchesDietary
         }
         if (sortByDistance && userLocation != null) {
             list.sortedBy { res ->
@@ -872,6 +874,20 @@ fun FindScreen(
                         if (filterHidden) Icons.Default.VisibilityOff else Icons.Default.Visibility,
                         contentDescription = "Hidden Items",
                         tint = if (filterHidden) Mist100 else Mist400,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = { viewModel.toggleExcludeNonLocationResources() },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(if (viewModel.excludeNonLocationResources.value) Beacon500 else Ink900, RoundedCornerShape(8.dp))
+                ) {
+                    Icon(
+                        if (viewModel.excludeNonLocationResources.value) Icons.Default.Place else Icons.Default.Phone,
+                        contentDescription = if (viewModel.excludeNonLocationResources.value) "Excluding Help Lines (Physical Places Only)" else "Include Help Lines & Non-Location Resources",
+                        tint = if (viewModel.excludeNonLocationResources.value) Ink950 else Mist400,
                         modifier = Modifier.size(20.dp)
                     )
                 }
@@ -3866,6 +3882,30 @@ fun SettingsScreen(
                     HorizontalDivider(color = Ink800)
                     Spacer(modifier = Modifier.height(16.dp))
 
+                    // Exclude Phone Lines & Non-Location Resources
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text("Exclude Help Lines & Non-Location Resources", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                            Text("Hide phone lines, hotlines, and non-physical location services from Now & Find search results to focus exclusively on walk-in places.", fontSize = 11.sp, color = Mist400)
+                        }
+                        Switch(
+                            checked = viewModel.excludeNonLocationResources.value,
+                            onCheckedChange = { viewModel.toggleExcludeNonLocationResources(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(16.dp))
+
                     // Demographics
                     Text("Demographic Focus", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
                     Text("Select target population groups to highlight relevant services.", fontSize = 11.sp, color = Mist400)
@@ -5952,6 +5992,16 @@ fun ResourceCard(
                     ) {
                         Text(resource.category.replaceFirstChar { it.uppercase() }, color = Beacon400, fontSize = 10.sp)
                     }
+                    if (resource.isNonLocationOrHelpline()) {
+                        Box(
+                            modifier = Modifier
+                                .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                .border(0.5.dp, Beacon500.copy(alpha = 0.5f), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text("📞 Phone/Helpline", color = Beacon400, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
                     if (distanceMiles != null) {
                         Box(
                             modifier = Modifier
@@ -6318,6 +6368,15 @@ fun ActivePresetsBanner(
 ) {
     if (!viewModel.hasActivePresets) return
 
+    val activeDetails = remember(viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value, viewModel.excludeNonLocationResources.value) {
+        val items = mutableListOf<String>()
+        if (viewModel.excludeNonLocationResources.value) items.add("Physical locations only")
+        if (viewModel.accessibilityMobilityMode.value) items.add("Wheelchair accessible")
+        if (viewModel.demographicPresets.value.isNotEmpty()) items.add("${viewModel.demographicPresets.value.size} demographic filters")
+        if (viewModel.dietaryPresets.value.isNotEmpty()) items.add("${viewModel.dietaryPresets.value.size} dietary filters")
+        if (items.isEmpty()) "Results are currently filtered by your profile." else items.joinToString(" • ")
+    }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -6340,13 +6399,13 @@ fun ActivePresetsBanner(
             )
             Column {
                 Text(
-                    "Settings Presets Active",
+                    "Settings Filters Active",
                     color = Beacon500,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
                 )
                 Text(
-                    "Results are currently filtered by your profile.",
+                    activeDetails,
                     color = Mist200,
                     fontSize = 11.sp
                 )
