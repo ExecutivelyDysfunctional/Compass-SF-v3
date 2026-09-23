@@ -112,7 +112,19 @@ fun MapScreen(
     var selectedCategoryFilter by remember { mutableStateOf(if (initialCategory.isBlank()) "all" else initialCategory) }
     var filterOpenOnly by remember { mutableStateOf(false) }
 
-    val filteredResources = remember(allResources, searchQuery, selectedCategoryFilter, filterOpenOnly, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value) {
+    val filteredResources = remember(
+        allResources,
+        searchQuery,
+        selectedCategoryFilter,
+        filterOpenOnly,
+        viewModel.demographicPresets.value,
+        viewModel.accessibilityMobilityMode.value,
+        viewModel.dietaryPresets.value,
+        viewModel.sourceShelterTechEnabled.value,
+        viewModel.sourceDataSfEnabled.value,
+        viewModel.source211Enabled.value,
+        viewModel.sourceCommunityEnabled.value
+    ) {
         allResources.filter { res ->
             if (res.hidden) return@filter false
 
@@ -132,8 +144,9 @@ fun MapScreen(
             val matchesDemographic = PresetMatcher.matchesDemographic(res, viewModel.demographicPresets.value)
             val matchesAccessibility = PresetMatcher.matchesAccessibility(res, viewModel.accessibilityMobilityMode.value)
             val matchesDietary = PresetMatcher.matchesDietary(res, viewModel.dietaryPresets.value)
+            val matchesSource = viewModel.isSourceAllowed(res.source)
 
-            matchesSearch && matchesCategory && matchesOpen && matchesDemographic && matchesAccessibility && matchesDietary
+            matchesSearch && matchesCategory && matchesOpen && matchesDemographic && matchesAccessibility && matchesDietary && matchesSource
         }
     }
 

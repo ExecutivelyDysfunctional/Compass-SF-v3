@@ -1,10 +1,14 @@
 package com.example.data
 
+import android.content.Context
+import android.graphics.Bitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.io.File
+import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -120,7 +124,7 @@ class CompassRepository(private val dao: ResourceDao) {
 
     suspend fun getAllVisits(): List<Visit> = dao.getAllVisits()
 
-    suspend fun createBackupData(): CompassBackup = withContext(Dispatchers.IO) {
+    suspend fun createBackupData(selection: BackupEntitySelection = BackupEntitySelection()): CompassBackup = withContext(Dispatchers.IO) {
         val allRes = dao.getAllResources()
         val allRmp = dao.getAllRmpLocations()
         val allVisits = dao.getAllVisits()
@@ -128,67 +132,85 @@ class CompassRepository(private val dao: ResourceDao) {
 
         val resMap = allRes.associateBy { it.id }
 
-        // Filter user favorites and items with private notes
-        val userResources = allRes.filter { it.favorite || it.personalNotes.isNotBlank() }
-            .map { res ->
+        // Filter user favorites and items with private notes according to selection
+        val userResources = if (selection.includeFavorites || selection.includeNotes) {
+            allRes.filter { 
+                (selection.includeFavorites && it.favorite) || (selection.includeNotes && it.personalNotes.isNotBlank())
+            }.map { res ->
                 ResourceUserDataBackup(
                     resourceId = res.id,
                     name = res.name,
                     address = res.address,
-                    favorite = res.favorite,
-                    personalNotes = res.personalNotes
+                    favorite = if (selection.includeFavorites) res.favorite else false,
+                    personalNotes = if (selection.includeNotes) res.personalNotes else ""
                 )
             }
+        } else {
+            emptyList()
+        }
 
-        val userRmp = allRmp.filter { it.favorite || it.personalNotes.isNotBlank() || it.timesUsed > 0 }
-            .map { rmp ->
+        val userRmp = if (selection.includeFavorites || selection.includeNotes) {
+            allRmp.filter {
+                (selection.includeFavorites && it.favorite) || (selection.includeNotes && it.personalNotes.isNotBlank()) || it.timesUsed > 0
+            }.map { rmp ->
                 RmpUserDataBackup(
                     rmpId = rmp.id,
                     name = rmp.name,
                     address = rmp.address,
-                    favorite = rmp.favorite,
-                    personalNotes = rmp.personalNotes,
+                    favorite = if (selection.includeFavorites) rmp.favorite else false,
+                    personalNotes = if (selection.includeNotes) rmp.personalNotes else "",
                     timesUsed = rmp.timesUsed,
                     lastUsedAt = rmp.lastUsedAt
                 )
             }
+        } else {
+            emptyList()
+        }
 
         // Visits with resource metadata for portable reference
-        val visitBackups = allVisits.map { v ->
-            val linkedRes = resMap[v.resourceId]
-            VisitBackup(
-                id = v.id,
-                resourceId = v.resourceId,
-                resourceName = linkedRes?.name ?: "",
-                resourceAddress = linkedRes?.address ?: "",
-                visitedAt = v.visitedAt,
-                outcome = v.outcome,
-                waitMinutes = v.waitMinutes,
-                rating = v.rating,
-                notes = v.notes
-            )
+        val visitBackups = if (selection.includeVisits) {
+            allVisits.map { v ->
+                val linkedRes = resMap[v.resourceId]
+                VisitBackup(
+                    id = v.id,
+                    resourceId = v.resourceId,
+                    resourceName = linkedRes?.name ?: "",
+                    resourceAddress = linkedRes?.address ?: "",
+                    visitedAt = v.visitedAt,
+                    outcome = v.outcome,
+                    waitMinutes = v.waitMinutes,
+                    rating = v.rating,
+                    notes = v.notes
+                )
+            }
+        } else {
+            emptyList()
         }
 
         // Tasks with resource name if linked
-        val taskBackups = allTasks.map { t ->
-            val linkedRes = t.resourceId?.let { resMap[it] }
-            TaskBackup(
-                id = t.id,
-                title = t.title,
-                notes = t.notes,
-                kind = t.kind,
-                dueAt = t.dueAt,
-                resourceId = t.resourceId,
-                resourceName = linkedRes?.name,
-                done = t.done,
-                priority = t.priority,
-                createdAt = t.createdAt
-            )
+        val taskBackups = if (selection.includeTasks) {
+            allTasks.map { t ->
+                val linkedRes = t.resourceId?.let { resMap[it] }
+                TaskBackup(
+                    id = t.id,
+                    title = t.title,
+                    notes = t.notes,
+                    kind = t.kind,
+                    dueAt = t.dueAt,
+                    resourceId = t.resourceId,
+                    resourceName = linkedRes?.name,
+                    done = t.done,
+                    priority = t.priority,
+                    createdAt = t.createdAt
+                )
+            }
+        } else {
+            emptyList()
         }
 
         // Custom places added manually or via AI
-        val customRes = allRes.filter { it.createdVia != "seed" }
-        val customRmp = allRmp.filter { it.createdVia != "seed" }
+        val customRes = if (selection.includeCustomPlaces) allRes.filter { it.createdVia != "seed" } else emptyList()
+        val customRmp = if (selection.includeCustomPlaces) allRmp.filter { it.createdVia != "seed" } else emptyList()
 
         val totalFavs = userResources.count { it.favorite } + userRmp.count { it.favorite }
         val totalNotes = userResources.count { it.personalNotes.isNotBlank() } + userRmp.count { it.personalNotes.isNotBlank() }
@@ -249,7 +271,10 @@ class CompassRepository(private val dao: ResourceDao) {
         )
     }
 
-    suspend fun restoreBackup(backup: CompassBackup): ImportResult = withContext(Dispatchers.IO) {
+    suspend fun restoreBackup(
+        backup: CompassBackup,
+        selection: BackupEntitySelection = BackupEntitySelection()
+    ): ImportResult = withContext(Dispatchers.IO) {
         var favsUpdated = 0
         var notesUpdated = 0
         var visitsRestored = 0
@@ -259,167 +284,180 @@ class CompassRepository(private val dao: ResourceDao) {
         var currentResources = dao.getAllResources()
         var currentRmp = dao.getAllRmpLocations()
 
-        // 1. Restore Custom Resources
-        for (custom in backup.customResources) {
-            val exists = currentResources.any { it.name.trim().equals(custom.name.trim(), ignoreCase = true) }
-            if (!exists) {
-                dao.insertResource(custom.copy(id = 0))
-                customPlacesRestored++
-            }
-        }
-        if (backup.customResources.isNotEmpty()) {
-            currentResources = dao.getAllResources()
-        }
-
-        // 2. Restore Resource Favorites & Notes
-        for (resBackup in backup.resources) {
-            val existing = currentResources.find {
-                it.name.trim().equals(resBackup.name.trim(), ignoreCase = true) ||
-                (resBackup.resourceId != null && it.id == resBackup.resourceId)
-            }
-            if (existing != null) {
-                var changed = false
-                var newFav = existing.favorite
-                var newNotes = existing.personalNotes
-
-                if (resBackup.favorite && !existing.favorite) {
-                    newFav = true
-                    favsUpdated++
-                    changed = true
+        // 1. Restore Custom Resources (if selected)
+        if (selection.includeCustomPlaces) {
+            for (custom in backup.customResources) {
+                val exists = currentResources.any { it.name.trim().equals(custom.name.trim(), ignoreCase = true) }
+                if (!exists) {
+                    dao.insertResource(custom.copy(id = 0))
+                    customPlacesRestored++
                 }
-                if (resBackup.personalNotes.isNotBlank()) {
-                    if (existing.personalNotes.isBlank()) {
-                        newNotes = resBackup.personalNotes
-                        notesUpdated++
-                        changed = true
-                    } else if (!existing.personalNotes.contains(resBackup.personalNotes.trim())) {
-                        newNotes = "${existing.personalNotes}\n---\n${resBackup.personalNotes.trim()}"
-                        notesUpdated++
+            }
+            if (backup.customResources.isNotEmpty()) {
+                currentResources = dao.getAllResources()
+            }
+        }
+
+        // 2. Restore Resource Favorites & Notes (if selected)
+        if (selection.includeFavorites || selection.includeNotes) {
+            for (resBackup in backup.resources) {
+                val existing = currentResources.find {
+                    it.name.trim().equals(resBackup.name.trim(), ignoreCase = true) ||
+                    (resBackup.resourceId != null && it.id == resBackup.resourceId)
+                }
+                if (existing != null) {
+                    var changed = false
+                    var newFav = existing.favorite
+                    var newNotes = existing.personalNotes
+
+                    if (selection.includeFavorites && resBackup.favorite && !existing.favorite) {
+                        newFav = true
+                        favsUpdated++
                         changed = true
                     }
-                }
-                if (changed) {
-                    dao.updateResource(existing.copy(favorite = newFav, personalNotes = newNotes))
-                }
-            }
-        }
-
-        // 3. Restore Custom RMP Locations
-        for (custom in backup.customRmpLocations) {
-            val exists = currentRmp.any { it.name.trim().equals(custom.name.trim(), ignoreCase = true) }
-            if (!exists) {
-                dao.insertRmpLocation(custom.copy(id = 0))
-                customPlacesRestored++
-            }
-        }
-        if (backup.customRmpLocations.isNotEmpty()) {
-            currentRmp = dao.getAllRmpLocations()
-        }
-
-        // 4. Restore RMP Favorites & Notes
-        for (rmpBackup in backup.rmpLocations) {
-            val existing = currentRmp.find {
-                it.name.trim().equals(rmpBackup.name.trim(), ignoreCase = true) ||
-                (rmpBackup.rmpId != null && it.id == rmpBackup.rmpId)
-            }
-            if (existing != null) {
-                var changed = false
-                var newFav = existing.favorite
-                var newNotes = existing.personalNotes
-                var newTimes = existing.timesUsed
-
-                if (rmpBackup.favorite && !existing.favorite) {
-                    newFav = true
-                    favsUpdated++
-                    changed = true
-                }
-                if (rmpBackup.personalNotes.isNotBlank()) {
-                    if (existing.personalNotes.isBlank()) {
-                        newNotes = rmpBackup.personalNotes
-                        notesUpdated++
-                        changed = true
-                    } else if (!existing.personalNotes.contains(rmpBackup.personalNotes.trim())) {
-                        newNotes = "${existing.personalNotes}\n---\n${rmpBackup.personalNotes.trim()}"
-                        notesUpdated++
-                        changed = true
+                    if (selection.includeNotes && resBackup.personalNotes.isNotBlank()) {
+                        if (existing.personalNotes.isBlank()) {
+                            newNotes = resBackup.personalNotes
+                            notesUpdated++
+                            changed = true
+                        } else if (!existing.personalNotes.contains(resBackup.personalNotes.trim())) {
+                            newNotes = "${existing.personalNotes}\n---\n${resBackup.personalNotes.trim()}"
+                            notesUpdated++
+                            changed = true
+                        }
+                    }
+                    if (changed) {
+                        dao.updateResource(existing.copy(favorite = newFav, personalNotes = newNotes))
                     }
                 }
-                if (rmpBackup.timesUsed > existing.timesUsed) {
-                    newTimes = rmpBackup.timesUsed
-                    changed = true
+            }
+        }
+
+        // 3. Restore Custom RMP Locations (if selected)
+        if (selection.includeCustomPlaces) {
+            for (custom in backup.customRmpLocations) {
+                val exists = currentRmp.any { it.name.trim().equals(custom.name.trim(), ignoreCase = true) }
+                if (!exists) {
+                    dao.insertRmpLocation(custom.copy(id = 0))
+                    customPlacesRestored++
                 }
-                if (changed) {
-                    dao.updateRmpLocation(
-                        existing.copy(
-                            favorite = newFav,
-                            personalNotes = newNotes,
-                            timesUsed = newTimes,
-                            lastUsedAt = rmpBackup.lastUsedAt ?: existing.lastUsedAt
+            }
+            if (backup.customRmpLocations.isNotEmpty()) {
+                currentRmp = dao.getAllRmpLocations()
+            }
+        }
+
+        // 4. Restore RMP Favorites & Notes (if selected)
+        if (selection.includeFavorites || selection.includeNotes) {
+            for (rmpBackup in backup.rmpLocations) {
+                val existing = currentRmp.find {
+                    it.name.trim().equals(rmpBackup.name.trim(), ignoreCase = true) ||
+                    (rmpBackup.rmpId != null && it.id == rmpBackup.rmpId)
+                }
+                if (existing != null) {
+                    var changed = false
+                    var newFav = existing.favorite
+                    var newNotes = existing.personalNotes
+                    var newTimes = existing.timesUsed
+
+                    if (selection.includeFavorites && rmpBackup.favorite && !existing.favorite) {
+                        newFav = true
+                        favsUpdated++
+                        changed = true
+                    }
+                    if (selection.includeNotes && rmpBackup.personalNotes.isNotBlank()) {
+                        if (existing.personalNotes.isBlank()) {
+                            newNotes = rmpBackup.personalNotes
+                            notesUpdated++
+                            changed = true
+                        } else if (!existing.personalNotes.contains(rmpBackup.personalNotes.trim())) {
+                            newNotes = "${existing.personalNotes}\n---\n${rmpBackup.personalNotes.trim()}"
+                            notesUpdated++
+                            changed = true
+                        }
+                    }
+                    if (rmpBackup.timesUsed > existing.timesUsed) {
+                        newTimes = rmpBackup.timesUsed
+                        changed = true
+                    }
+                    if (changed) {
+                        dao.updateRmpLocation(
+                            existing.copy(
+                                favorite = newFav,
+                                personalNotes = newNotes,
+                                timesUsed = newTimes,
+                                lastUsedAt = rmpBackup.lastUsedAt ?: existing.lastUsedAt
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
+        // 5. Restore Visits (if selected)
+        if (selection.includeVisits) {
+            val currentVisits = dao.getAllVisits()
+            val latestResources = dao.getAllResources()
+            for (v in backup.visits) {
+                val targetResId = if (v.resourceName.isNotBlank()) {
+                    latestResources.find { it.name.trim().equals(v.resourceName.trim(), ignoreCase = true) }?.id ?: v.resourceId
+                } else {
+                    v.resourceId
+                }
+
+                val isDuplicate = currentVisits.any { existing ->
+                    existing.resourceId == targetResId &&
+                    existing.outcome == v.outcome &&
+                    (abs(existing.visitedAt - v.visitedAt) < 60000 || existing.notes == v.notes)
+                }
+
+                if (!isDuplicate) {
+                    dao.insertVisit(
+                        Visit(
+                            id = 0,
+                            resourceId = targetResId,
+                            visitedAt = v.visitedAt,
+                            outcome = v.outcome,
+                            waitMinutes = v.waitMinutes,
+                            rating = v.rating,
+                            notes = v.notes
                         )
                     )
+                    visitsRestored++
                 }
             }
         }
 
-        // 5. Restore Visits
-        val currentVisits = dao.getAllVisits()
-        val latestResources = dao.getAllResources()
-        for (v in backup.visits) {
-            val targetResId = if (v.resourceName.isNotBlank()) {
-                latestResources.find { it.name.trim().equals(v.resourceName.trim(), ignoreCase = true) }?.id ?: v.resourceId
-            } else {
-                v.resourceId
-            }
-
-            val isDuplicate = currentVisits.any { existing ->
-                existing.resourceId == targetResId &&
-                existing.outcome == v.outcome &&
-                (abs(existing.visitedAt - v.visitedAt) < 60000 || existing.notes == v.notes)
-            }
-
-            if (!isDuplicate) {
-                dao.insertVisit(
-                    Visit(
-                        id = 0,
-                        resourceId = targetResId,
-                        visitedAt = v.visitedAt,
-                        outcome = v.outcome,
-                        waitMinutes = v.waitMinutes,
-                        rating = v.rating,
-                        notes = v.notes
-                    )
-                )
-                visitsRestored++
-            }
-        }
-
-        // 6. Restore Tasks
-        val currentTasks = dao.getAllTasks()
-        for (t in backup.tasks) {
-            val isDuplicate = currentTasks.any { existing ->
-                existing.title.trim().equals(t.title.trim(), ignoreCase = true) &&
-                existing.kind == t.kind
-            }
-            if (!isDuplicate) {
-                val matchedResId = if (!t.resourceName.isNullOrBlank()) {
-                    latestResources.find { it.name.trim().equals(t.resourceName.trim(), ignoreCase = true) }?.id ?: t.resourceId
-                } else {
-                    t.resourceId
+        // 6. Restore Tasks (if selected)
+        if (selection.includeTasks) {
+            val currentTasks = dao.getAllTasks()
+            val latestResources = dao.getAllResources()
+            for (t in backup.tasks) {
+                val isDuplicate = currentTasks.any { existing ->
+                    existing.title.trim().equals(t.title.trim(), ignoreCase = true) &&
+                    existing.kind == t.kind
                 }
-                dao.insertTask(
-                    Task(
-                        id = 0,
-                        title = t.title,
-                        notes = t.notes,
-                        kind = t.kind,
-                        dueAt = t.dueAt,
-                        resourceId = matchedResId,
-                        done = t.done,
-                        priority = t.priority,
-                        createdAt = t.createdAt
+                if (!isDuplicate) {
+                    val matchedResId = if (!t.resourceName.isNullOrBlank()) {
+                        latestResources.find { it.name.trim().equals(t.resourceName.trim(), ignoreCase = true) }?.id ?: t.resourceId
+                    } else {
+                        t.resourceId
+                    }
+                    dao.insertTask(
+                        Task(
+                            id = 0,
+                            title = t.title,
+                            notes = t.notes,
+                            kind = t.kind,
+                            dueAt = t.dueAt,
+                            resourceId = matchedResId,
+                            done = t.done,
+                            priority = t.priority,
+                            createdAt = t.createdAt
+                        )
                     )
-                )
-                tasksRestored++
+                    tasksRestored++
+                }
             }
         }
 
@@ -430,5 +468,209 @@ class CompassRepository(private val dao: ResourceDao) {
             tasksRestored = tasksRestored,
             customPlacesRestored = customPlacesRestored
         )
+    }
+
+    // --- Database Factory Re-seeding (Chunk 5) ---
+    suspend fun factoryReseedDatabase(): ReseedResult = withContext(Dispatchers.IO) {
+        var resUpdated = 0
+        var resAdded = 0
+        var rmpUpdated = 0
+        var rmpAdded = 0
+        var tasksAdded = 0
+
+        // 1. Refresh Resources from Seed Data
+        val existingResources = dao.getAllResources()
+        val existingResMap = existingResources.associateBy { it.name.trim().lowercase() }
+
+        for (seed in SeedData.SEED_RESOURCES) {
+            val coords = LocationHelper.getCoordinates(seed)
+            val seedWithCoords = if (seed.lat == null && coords != null) {
+                seed.copy(lat = coords.first, lng = coords.second)
+            } else seed
+
+            val existing = existingResMap[seed.name.trim().lowercase()]
+            if (existing == null) {
+                dao.insertResource(seedWithCoords)
+                resAdded++
+            } else {
+                // Update directory data while strictly keeping user customization (favorite, personalNotes, hidden)
+                val updated = existing.copy(
+                    category = seedWithCoords.category,
+                    alsoOffers = seedWithCoords.alsoOffers,
+                    summary = seedWithCoords.summary,
+                    description = seedWithCoords.description,
+                    address = seedWithCoords.address,
+                    neighborhood = seedWithCoords.neighborhood,
+                    lat = seedWithCoords.lat ?: existing.lat,
+                    lng = seedWithCoords.lng ?: existing.lng,
+                    phone = seedWithCoords.phone,
+                    website = seedWithCoords.website,
+                    hoursText = seedWithCoords.hoursText,
+                    hours = seedWithCoords.hours,
+                    open24 = seedWithCoords.open24,
+                    requirements = seedWithCoords.requirements,
+                    bring = seedWithCoords.bring,
+                    eligibility = seedWithCoords.eligibility,
+                    cost = seedWithCoords.cost,
+                    languages = seedWithCoords.languages,
+                    tags = seedWithCoords.tags,
+                    confidence = seedWithCoords.confidence,
+                    status = seedWithCoords.status,
+                    phoneLine = seedWithCoords.phoneLine,
+                    source = seedWithCoords.source,
+                    aiTips = seedWithCoords.aiTips,
+                    lastVerifiedAt = seedWithCoords.lastVerifiedAt ?: existing.lastVerifiedAt,
+                    updatedAt = System.currentTimeMillis()
+                )
+                dao.updateResource(updated)
+                resUpdated++
+            }
+        }
+
+        // 2. Refresh RMP Locations from Seed Data
+        val existingRmp = dao.getAllRmpLocations()
+        val existingRmpMap = existingRmp.associateBy { it.name.trim().lowercase() }
+
+        for (seed in SeedData.SEED_RMP_LOCATIONS) {
+            val coords = LocationHelper.getCoordinates(seed)
+            val seedWithCoords = if (seed.lat == null && coords != null) {
+                seed.copy(lat = coords.first, lng = coords.second)
+            } else seed
+
+            val existing = existingRmpMap[seed.name.trim().lowercase()]
+            if (existing == null) {
+                dao.insertRmpLocation(seedWithCoords)
+                rmpAdded++
+            } else {
+                // Keep user customization (favorite, personalNotes, hidden, timesUsed, lastUsedAt)
+                val updated = existing.copy(
+                    address = seedWithCoords.address,
+                    neighborhood = seedWithCoords.neighborhood,
+                    zip = seedWithCoords.zip,
+                    lat = seedWithCoords.lat ?: existing.lat,
+                    lng = seedWithCoords.lng ?: existing.lng,
+                    cuisine = seedWithCoords.cuisine,
+                    chain = seedWithCoords.chain,
+                    phone = seedWithCoords.phone,
+                    hoursText = seedWithCoords.hoursText,
+                    hours = seedWithCoords.hours,
+                    open24 = seedWithCoords.open24,
+                    notes = seedWithCoords.notes,
+                    tips = seedWithCoords.tips,
+                    confidence = seedWithCoords.confidence,
+                    status = seedWithCoords.status,
+                    source = seedWithCoords.source,
+                    updatedAt = System.currentTimeMillis()
+                )
+                dao.updateRmpLocation(updated)
+                rmpUpdated++
+            }
+        }
+
+        // 3. Ensure baseline tasks are present
+        val currentTasks = dao.getAllTasks()
+        for (seedTask in SeedData.SEED_TASKS) {
+            val exists = currentTasks.any { it.title.trim().equals(seedTask.title.trim(), ignoreCase = true) }
+            if (!exists) {
+                dao.insertTask(seedTask)
+                tasksAdded++
+            }
+        }
+
+        ReseedResult(
+            resourcesUpdated = resUpdated,
+            resourcesAdded = resAdded,
+            rmpUpdated = rmpUpdated,
+            rmpAdded = rmpAdded,
+            tasksChecked = SeedData.SEED_TASKS.size
+        )
+    }
+
+    // --- Photo Cache Manager (Chunk 5) ---
+    fun getPhotoCacheFiles(context: Context): List<CachedPhotoInfo> {
+        val list = mutableListOf<CachedPhotoInfo>()
+        val flyerDir = File(context.filesDir, "flyer_cache")
+        if (flyerDir.exists() && flyerDir.isDirectory) {
+            flyerDir.listFiles()?.forEach { file ->
+                if (file.isFile && (file.extension.equals("jpg", true) || file.extension.equals("jpeg", true) || file.extension.equals("png", true))) {
+                    val bytes = file.length()
+                    val formatted = when {
+                        bytes < 1024 -> "$bytes B"
+                        bytes < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", bytes / 1024f)
+                        else -> String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f))
+                    }
+                    list.add(
+                        CachedPhotoInfo(
+                            fileName = file.name,
+                            absolutePath = file.absolutePath,
+                            sizeBytes = bytes,
+                            lastModified = file.lastModified(),
+                            formattedSize = formatted
+                        )
+                    )
+                }
+            }
+        }
+        val cacheDir = context.cacheDir
+        if (cacheDir.exists() && cacheDir.isDirectory) {
+            cacheDir.listFiles()?.forEach { file ->
+                if (file.isFile && file.name.startsWith("flyer_") && (file.extension.equals("jpg", true) || file.extension.equals("png", true))) {
+                    val bytes = file.length()
+                    val formatted = when {
+                        bytes < 1024 -> "$bytes B"
+                        bytes < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", bytes / 1024f)
+                        else -> String.format(Locale.US, "%.1f MB", bytes / (1024f * 1024f))
+                    }
+                    list.add(
+                        CachedPhotoInfo(
+                            fileName = file.name,
+                            absolutePath = file.absolutePath,
+                            sizeBytes = bytes,
+                            lastModified = file.lastModified(),
+                            formattedSize = formatted
+                        )
+                    )
+                }
+            }
+        }
+        return list.sortedByDescending { it.lastModified }
+    }
+
+    fun deletePhotoCacheFile(context: Context, fileName: String): Boolean {
+        val flyerDir = File(context.filesDir, "flyer_cache")
+        val file1 = File(flyerDir, fileName)
+        if (file1.exists() && file1.delete()) {
+            return true
+        }
+        val file2 = File(context.cacheDir, fileName)
+        if (file2.exists() && file2.delete()) {
+            return true
+        }
+        return false
+    }
+
+    fun clearAllPhotoCache(context: Context): Int {
+        var count = 0
+        val flyerDir = File(context.filesDir, "flyer_cache")
+        if (flyerDir.exists() && flyerDir.isDirectory) {
+            flyerDir.listFiles()?.forEach { f ->
+                if (f.delete()) count++
+            }
+        }
+        context.cacheDir.listFiles()?.forEach { f ->
+            if (f.name.startsWith("flyer_")) {
+                if (f.delete()) count++
+            }
+        }
+        return count
+    }
+
+    fun savePhotoToCache(context: Context, bitmap: Bitmap): String {
+        val flyerDir = File(context.filesDir, "flyer_cache").apply { mkdirs() }
+        val file = File(flyerDir, "flyer_${System.currentTimeMillis()}.jpg")
+        FileOutputStream(file).use { out ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        }
+        return file.absolutePath
     }
 }

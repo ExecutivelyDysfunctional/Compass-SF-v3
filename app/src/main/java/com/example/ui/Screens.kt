@@ -483,13 +483,26 @@ fun NowScreen(
     val sortByDistance by viewModel.sortByDistance
     var showLocationDialog by remember { mutableStateOf(false) }
     
-    val openNowList = remember(resources, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value, viewModel.excludeNonLocationResources.value) {
+    val openNowList = remember(
+        resources,
+        userLocation,
+        sortByDistance,
+        viewModel.demographicPresets.value,
+        viewModel.accessibilityMobilityMode.value,
+        viewModel.dietaryPresets.value,
+        viewModel.excludeNonLocationResources.value,
+        viewModel.sourceShelterTechEnabled.value,
+        viewModel.sourceDataSfEnabled.value,
+        viewModel.source211Enabled.value,
+        viewModel.sourceCommunityEnabled.value
+    ) {
         val openResources = resources.filter { res ->
             !res.hidden && isResourceOpen(res.open24, res.hours) &&
             (!viewModel.excludeNonLocationResources.value || !res.isNonLocationOrHelpline()) &&
             PresetMatcher.matchesDemographic(res, viewModel.demographicPresets.value) &&
             PresetMatcher.matchesAccessibility(res, viewModel.accessibilityMobilityMode.value) &&
-            PresetMatcher.matchesDietary(res, viewModel.dietaryPresets.value)
+            PresetMatcher.matchesDietary(res, viewModel.dietaryPresets.value) &&
+            viewModel.isSourceAllowed(res.source)
         }
         if (sortByDistance && userLocation != null) {
             openResources.sortedBy { res ->
@@ -760,7 +773,26 @@ fun FindScreen(
         "211" to "211 Bay Area"
     )
 
-    val filteredList = remember(resources, searchQuery, selectedCategory, selectedNeighborhood, selectedSource, filterOpenNow, filterFavorites, filterHidden, userLocation, sortByDistance, viewModel.demographicPresets.value, viewModel.accessibilityMobilityMode.value, viewModel.dietaryPresets.value, viewModel.excludeNonLocationResources.value) {
+    val filteredList = remember(
+        resources,
+        searchQuery,
+        selectedCategory,
+        selectedNeighborhood,
+        selectedSource,
+        filterOpenNow,
+        filterFavorites,
+        filterHidden,
+        userLocation,
+        sortByDistance,
+        viewModel.demographicPresets.value,
+        viewModel.accessibilityMobilityMode.value,
+        viewModel.dietaryPresets.value,
+        viewModel.excludeNonLocationResources.value,
+        viewModel.sourceShelterTechEnabled.value,
+        viewModel.sourceDataSfEnabled.value,
+        viewModel.source211Enabled.value,
+        viewModel.sourceCommunityEnabled.value
+    ) {
         val list = resources.filter { res ->
             val matchesSearch = res.name.contains(searchQuery, ignoreCase = true) || 
                     res.summary.contains(searchQuery, ignoreCase = true) ||
@@ -778,8 +810,9 @@ fun FindScreen(
             val matchesDemographic = PresetMatcher.matchesDemographic(res, viewModel.demographicPresets.value)
             val matchesAccessibility = PresetMatcher.matchesAccessibility(res, viewModel.accessibilityMobilityMode.value)
             val matchesDietary = PresetMatcher.matchesDietary(res, viewModel.dietaryPresets.value)
+            val matchesAllowedSource = viewModel.isSourceAllowed(res.source)
 
-            matchesSearch && matchesCategory && matchesNeighborhood && matchesSource && matchesOpen && matchesFav && matchesHidden && matchesNonLocation && matchesDemographic && matchesAccessibility && matchesDietary
+            matchesSearch && matchesCategory && matchesNeighborhood && matchesSource && matchesOpen && matchesFav && matchesHidden && matchesNonLocation && matchesDemographic && matchesAccessibility && matchesDietary && matchesAllowedSource
         }
         if (sortByDistance && userLocation != null) {
             list.sortedBy { res ->
@@ -787,6 +820,12 @@ fun FindScreen(
             }
         } else {
             list
+        }
+    }
+
+    LaunchedEffect(searchQuery) {
+        if (searchQuery.trim().length >= 2 && !viewModel.incognitoSearchMode.value) {
+            viewModel.addRecentSearch(searchQuery)
         }
     }
 
@@ -806,9 +845,23 @@ fun FindScreen(
             placeholder = { Text("Search meals, clinics, shelter, IDs, sources...", color = Mist400) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search", tint = Mist400) },
             trailingIcon = {
-                if (searchQuery.isNotBlank()) {
-                    IconButton(onClick = { searchQuery = "" }) {
-                        Icon(Icons.Default.Close, contentDescription = "Clear search", tint = Mist400, modifier = Modifier.size(18.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (searchQuery.isNotBlank()) {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search", tint = Mist400, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                    IconButton(
+                        onClick = {
+                            viewModel.toggleIncognitoSearchMode(!viewModel.incognitoSearchMode.value)
+                        },
+                        modifier = Modifier.testTag("toggle_incognito_search")
+                    ) {
+                        if (viewModel.incognitoSearchMode.value) {
+                            Text("🕵️", fontSize = 16.sp)
+                        } else {
+                            Icon(Icons.Default.Security, contentDescription = "Incognito Search Mode", tint = Mist400, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             },
@@ -823,6 +876,107 @@ fun FindScreen(
             shape = RoundedCornerShape(8.dp),
             singleLine = true
         )
+
+        // Ephemeral / Incognito Search Indicator
+        if (viewModel.incognitoSearchMode.value) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .background(Ink900, RoundedCornerShape(6.dp))
+                    .border(1.dp, Beacon500.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("🕵️", fontSize = 13.sp)
+                    Text("Incognito Search • Zero query logs recorded", fontSize = 11.sp, color = Beacon400, fontWeight = FontWeight.SemiBold)
+                }
+                Text(
+                    "Disable",
+                    fontSize = 11.sp,
+                    color = Mist300,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { viewModel.toggleIncognitoSearchMode(false) }
+                )
+            }
+        } else if (viewModel.recentSearches.value.isNotEmpty() && searchQuery.isBlank()) {
+            // Recent Searches Chips Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Recent:", fontSize = 11.sp, color = Mist400, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.width(6.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    items(viewModel.recentSearches.value) { query ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Ink850,
+                            border = BorderStroke(1.dp, Ink700),
+                            modifier = Modifier.clickable { searchQuery = query }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(query, fontSize = 11.sp, color = Mist200)
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Remove recent search",
+                                    tint = Mist400,
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clickable { viewModel.removeRecentSearch(query) }
+                                )
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "Clear",
+                    fontSize = 10.sp,
+                    color = Mist400,
+                    modifier = Modifier
+                        .clickable { viewModel.clearRecentSearches() }
+                        .padding(start = 6.dp)
+                )
+            }
+        }
+
+        // Active Curated Data Sources Filter Warning Banner
+        if (viewModel.hasDisabledDataSources) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .background(Ink900, RoundedCornerShape(6.dp))
+                    .border(1.dp, Amber500.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("⚡", fontSize = 12.sp)
+                    Text("Curated Sources Filter Active (Some directories hidden)", fontSize = 11.sp, color = Amber500)
+                }
+                Text(
+                    "Reset All",
+                    fontSize = 11.sp,
+                    color = Beacon400,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { viewModel.resetDataSourcesToDefaults() }
+                )
+            }
+        }
 
         // Location & Proximity Bar
         LocationBar(
@@ -2987,6 +3141,12 @@ fun SettingsScreen(
 
     var showPasteJsonDialog by remember { mutableStateOf(false) }
     var pastedJsonText by remember { mutableStateOf("") }
+    var showPhotoCacheInspectionDialog by remember { mutableStateOf(false) }
+    var showReseedConfirmDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        viewModel.refreshPhotoCacheAudit(context)
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -3060,12 +3220,16 @@ fun SettingsScreen(
     val targetDisplayIndex = 9
     val targetMapIndex = 10
     val targetIconIndex = 11
-    val targetBackupIndex = 12
-    val targetHiddenIndex = 13
+    val targetSourcesIndex = 12
+    val targetIncognitoIndex = 13
+    val targetPhotoCacheIndex = 14
+    val targetReseedIndex = 15
+    val targetBackupIndex = 16
+    val targetHiddenIndex = 17
     val targetStatsIndex = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-        13 + 1 + hiddenResources.size + hiddenRmp.size
+        17 + 1 + hiddenResources.size + hiddenRmp.size
     } else {
-        13
+        17
     }
 
     Box(
@@ -3155,7 +3319,7 @@ fun SettingsScreen(
                                     .border(1.dp, Ink700, RoundedCornerShape(12.dp))
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
-                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 12 else 11
+                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 16 else 15
                                 Text(
                                     "$totalSections Sections",
                                     color = Mist200,
@@ -3172,13 +3336,17 @@ fun SettingsScreen(
                                 Triple("🧭 Navigation", "Startup & Bottom Bar", targetWorkspaceIndex),
                                 Triple("⚙️ Filters", "Demographic & Dietary", targetFiltersIndex),
                                 Triple("🤖 AI Navigator", "Style & Endpoint", targetAiIndex),
+                                Triple("🗄️ Data Sources", "Civic Feeds & APIs", targetSourcesIndex),
+                                Triple("🕵️ Privacy Search", "Incognito & Recents", targetIncognitoIndex),
+                                Triple("📸 Photo Cache", "Flyer Cache Storage", targetPhotoCacheIndex),
+                                Triple("🔄 Re-seed DB", "Baseline Refresh", targetReseedIndex),
                                 Triple("🎨 Themes", "Atmosphere & Tones", targetThemeIndex),
                                 Triple("🌈 Accents", "Highlight Colors", targetAccentIndex),
                                 Triple("🔤 Text Size", "Scaling & Readability", targetTextIndex),
                                 Triple("🔆 Display", "Contrast & Density", targetDisplayIndex),
-                                Triple("🗺️ Map Layers", "Transit, Badges & Radar", targetMapIndex),
+                                Triple("🗺️ Map Layers", "Transit & Radar", targetMapIndex),
                                 Triple("📱 App Icon", "Launcher Style", targetIconIndex),
-                                Triple("💾 Backup", "Export & Import JSON", targetBackupIndex)
+                                Triple("💾 Backup", "Granular JSON Export", targetBackupIndex)
                             )
                             if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
                                 list.add(Triple("👁️ Hidden", "Unhide (${hiddenResources.size + hiddenRmp.size})", targetHiddenIndex))
@@ -5364,7 +5532,595 @@ fun SettingsScreen(
             }
         }
 
-        // Section 8: Data Portability & Backup (Export & Import)
+        // Section 9: Curated Data Sources & Feeds
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_sources")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text("Data Sources", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
+                            Box(
+                                modifier = Modifier
+                                    .background(Ink800, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("Multi-Feed", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Toggle authoritative civic datasets and community feeds queried across Compass SF maps and directories.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val shelterTechCount = remember(resources) {
+                        resources.count { it.source.contains("ShelterTech", ignoreCase = true) || it.source.contains("Service Guide", ignoreCase = true) }
+                    }
+                    val dataSfCount = remember(resources) {
+                        resources.count { it.source.contains("DataSF", ignoreCase = true) || it.source.contains("sf.gov", ignoreCase = true) }
+                    }
+                    val twoOneOneCount = remember(resources) {
+                        resources.count { it.source.contains("211", ignoreCase = true) }
+                    }
+                    val communityCount = remember(resources) {
+                        resources.count { it.source.contains("Community", ignoreCase = true) || it.createdVia != "seed" }
+                    }
+
+                    // ShelterTech Card
+                    DataSourceToggleCard(
+                        title = "ShelterTech / SF Service Guide",
+                        description = "Grassroots civic directory curated by volunteers and advocates for unhoused communities.",
+                        count = shelterTechCount,
+                        badge = "Civic Open Data",
+                        checked = viewModel.sourceShelterTechEnabled.value,
+                        onCheckedChange = { viewModel.toggleDataSource("sheltertech", it) }
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // DataSF Card
+                    DataSourceToggleCard(
+                        title = "DataSF Open Data Registry",
+                        description = "City & County of San Francisco open registry of clinics, food pantries, and shelters.",
+                        count = dataSfCount,
+                        badge = "SF Gov Verified",
+                        checked = viewModel.sourceDataSfEnabled.value,
+                        onCheckedChange = { viewModel.toggleDataSource("datasf", it) }
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // 211 Card
+                    DataSourceToggleCard(
+                        title = "211 Bay Area (Eden I&R)",
+                        description = "Regional health, human services, and crisis hotline directory.",
+                        count = twoOneOneCount,
+                        badge = "Bay Area 2-1-1",
+                        checked = viewModel.source211Enabled.value,
+                        onCheckedChange = { viewModel.toggleDataSource("211", it) }
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Community Submissions Card
+                    DataSourceToggleCard(
+                        title = "Community & Flyer Extractions",
+                        description = "Community submissions, street flyer photo intakes, and user added places.",
+                        count = communityCount,
+                        badge = "Crowdsourced",
+                        checked = viewModel.sourceCommunityEnabled.value,
+                        onCheckedChange = { viewModel.toggleDataSource("community", it) }
+                    )
+
+                    if (!viewModel.sourceShelterTechEnabled.value || !viewModel.sourceDataSfEnabled.value ||
+                        !viewModel.source211Enabled.value || !viewModel.sourceCommunityEnabled.value
+                    ) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.toggleDataSource("sheltertech", true)
+                                viewModel.toggleDataSource("datasf", true)
+                                viewModel.toggleDataSource("211", true)
+                                viewModel.toggleDataSource("community", true)
+                                Toast.makeText(context, "All data sources enabled", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon400)
+                        ) {
+                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Enable All Data Sources", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 10: Ephemeral / Incognito Search & Query Privacy
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_incognito")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 10", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text("Query Privacy", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
+                            Box(
+                                modifier = Modifier
+                                    .background(Ink800, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("Zero Retention", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Manage search history privacy and toggle ephemeral browsing to leave zero trace on this device.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Incognito Switch Row
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (viewModel.incognitoSearchMode.value) Beacon500.copy(alpha = 0.1f) else Ink950,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .border(
+                                1.dp,
+                                if (viewModel.incognitoSearchMode.value) Beacon500.copy(alpha = 0.4f) else Ink800,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("🕵️", fontSize = 20.sp)
+                            Column {
+                                Text(
+                                    "Incognito Search Mode",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp,
+                                    color = if (viewModel.incognitoSearchMode.value) Beacon400 else Mist100
+                                )
+                                Text(
+                                    "When active, queries are never added to recent searches or saved to local storage.",
+                                    fontSize = 11.sp,
+                                    color = Mist400
+                                )
+                            }
+                        }
+                        Switch(
+                            checked = viewModel.incognitoSearchMode.value,
+                            onCheckedChange = {
+                                viewModel.toggleIncognitoSearchMode(it)
+                                Toast.makeText(
+                                    context,
+                                    if (it) "Incognito Search active — zero queries saved" else "Standard search history resumed",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Beacon500,
+                                checkedTrackColor = Beacon500.copy(alpha = 0.3f),
+                                uncheckedThumbColor = Mist400,
+                                uncheckedTrackColor = Ink800
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Recent Searches Management
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "SAVED RECENT SEARCHES (${viewModel.recentSearches.value.size})",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Mist400,
+                                letterSpacing = 0.8.sp
+                            )
+                            if (viewModel.recentSearches.value.isNotEmpty()) {
+                                Text(
+                                    "Clear All",
+                                    fontSize = 11.sp,
+                                    color = Color(0xFFEF4444),
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable {
+                                        viewModel.clearRecentSearches()
+                                        Toast.makeText(context, "Search history cleared", Toast.LENGTH_SHORT).show()
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (viewModel.recentSearches.value.isEmpty()) {
+                            Text(
+                                "No recent searches stored on device.",
+                                fontSize = 12.sp,
+                                color = Mist400,
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                            )
+                        } else {
+                            viewModel.recentSearches.value.forEach { query ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 3.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("🔍", fontSize = 12.sp)
+                                        Text(query, fontSize = 13.sp, color = Mist200)
+                                    }
+                                    IconButton(
+                                        onClick = { viewModel.removeRecentSearch(query) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = "Remove query",
+                                            tint = Mist400,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 11: Flyer Photo Cache Manager
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_cache")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 11", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text("Photo Cache", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
+                            Box(
+                                modifier = Modifier
+                                    .background(Ink800, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("Offline Intake", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Audit and purge locally cached street flyer images and processed resource photo snapshots.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val cachedCount = viewModel.cachedPhotosList.value.size
+                    val cacheBytes = viewModel.totalPhotoCacheBytes.value
+                    val formattedSize = remember(cacheBytes) {
+                        when {
+                            cacheBytes < 1024 -> "$cacheBytes B"
+                            cacheBytes < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", cacheBytes / 1024.0)
+                            else -> String.format(Locale.US, "%.2f MB", cacheBytes / (1024.0 * 1024.0))
+                        }
+                    }
+
+                    // Cache Stats Card
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(Beacon500.copy(alpha = 0.15f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Beacon400, modifier = Modifier.size(18.dp))
+                            }
+                            Column {
+                                Text("$cachedCount Cached Flyers", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Mist100)
+                                Text("Storage used: $formattedSize", fontSize = 12.sp, color = Beacon400)
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                viewModel.refreshPhotoCacheAudit(context)
+                                Toast.makeText(context, "Photo cache audit refreshed", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Refresh Audit", tint = Mist400, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { showPhotoCacheInspectionDialog = true },
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 44.dp),
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200)
+                        ) {
+                            Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Inspect Files", fontSize = 12.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                viewModel.clearAllPhotoCache(context) { freedCount ->
+                                    Toast.makeText(context, "Cleared $freedCount cached flyer photos", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 44.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D), contentColor = Color(0xFFFCA5A5)),
+                            enabled = cachedCount > 0
+                        ) {
+                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Clear Cache", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 12: Database Factory Baseline Re-seeding
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_reseed")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("SECTION 12", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text("Database Re-seed", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
+                            Box(
+                                modifier = Modifier
+                                    .background(Ink800, RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("Safe Merge", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Safely synchronize baseline directory resources and EBT hot meal vendors to the latest curated seed dataset. Your personal notes, bookmarks, visits, and checklist tasks are strictly preserved.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("🛡️", fontSize = 14.sp)
+                            Text("Strictly preserves personal notes, bookmarks, visits & custom places", fontSize = 11.sp, color = Mist200)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("🔄", fontSize = 14.sp)
+                            Text("Updates hours, addresses, phones & intake criteria to latest verified baseline", fontSize = 11.sp, color = Mist200)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("➕", fontSize = 14.sp)
+                            Text("Restores any accidentally deleted or missing default community services", fontSize = 11.sp, color = Mist200)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = { showReseedConfirmDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 44.dp)
+                            .testTag("factory_reseed_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
+                        enabled = !viewModel.isReseeding.value
+                    ) {
+                        if (viewModel.isReseeding.value) {
+                            CircularProgressIndicator(color = Ink950, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Synchronizing Baseline...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Factory Refresh Baseline Resources", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // Reseed Success Banner
+                    viewModel.lastReseedResult.value?.let { result ->
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Emerald500.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
+                                .border(1.dp, Emerald500.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "✅ Re-seed complete: ${result.resourcesUpdated} updated, ${result.resourcesAdded} added, ${result.rmpUpdated} RMP locations refreshed.",
+                                color = Mist100,
+                                fontSize = 11.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { viewModel.dismissReseedResult() },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Mist400, modifier = Modifier.size(14.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section 13: Data Portability & Backup (Export & Import)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
@@ -5387,7 +6143,7 @@ fun SettingsScreen(
                                         .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
-                                    Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                                    Text("SECTION 13", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
                                 }
                                 Text(
                                     "Data Portability & Backup",
@@ -5497,6 +6253,65 @@ fun SettingsScreen(
                                     Text("Tasks", fontSize = 10.sp, color = Mist400)
                                 }
                             }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Granular Selection for Export
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink950, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "CUSTOMIZE WHAT TO EXPORT",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Black,
+                                color = Mist400,
+                                letterSpacing = 0.8.sp
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    "All",
+                                    fontSize = 11.sp,
+                                    color = Beacon400,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable { viewModel.setExportSelectAll(true) }
+                                )
+                                Text(
+                                    "None",
+                                    fontSize = 11.sp,
+                                    color = Mist400,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable { viewModel.setExportSelectAll(false) }
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val exportSel = viewModel.exportSelection.value
+                        val customCount = remember(resources) { resources.count { it.createdVia != "seed" } }
+                        BackupCheckboxRow("Saved Favorites ($totalFavs items)", exportSel.includeFavorites) {
+                            viewModel.setExportEntitySelected("favorites", it)
+                        }
+                        BackupCheckboxRow("Private User Notes ($totalNotes notes)", exportSel.includeNotes) {
+                            viewModel.setExportEntitySelected("notes", it)
+                        }
+                        BackupCheckboxRow("Visit History Logs ($totalVisits visits)", exportSel.includeVisits) {
+                            viewModel.setExportEntitySelected("visits", it)
+                        }
+                        BackupCheckboxRow("Checklist Tasks ($totalTasks tasks)", exportSel.includeTasks) {
+                            viewModel.setExportEntitySelected("tasks", it)
+                        }
+                        BackupCheckboxRow("Custom Community Places ($customCount places)", exportSel.includeCustomPlaces) {
+                            viewModel.setExportEntitySelected("custom", it)
                         }
                     }
 
@@ -5868,6 +6683,7 @@ fun SettingsScreen(
                         color = Mist200
                     )
 
+                    val importSel = viewModel.importSelection.value
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -5876,26 +6692,45 @@ fun SettingsScreen(
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Saved Favorites:", fontSize = 12.sp, color = Mist400)
-                            Text("${importPreview.favoriteCount} items", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("CHOOSE WHAT TO RESTORE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Mist400)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    "All",
+                                    fontSize = 11.sp,
+                                    color = Beacon400,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable { viewModel.setImportSelectAll(true) }
+                                )
+                                Text(
+                                    "None",
+                                    fontSize = 11.sp,
+                                    color = Mist400,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.clickable { viewModel.setImportSelectAll(false) }
+                                )
+                            }
                         }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Private User Notes:", fontSize = 12.sp, color = Mist400)
-                            Text("${importPreview.notesCount} notes", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        BackupCheckboxRow("Favorites (${importPreview.favoriteCount} items)", importSel.includeFavorites && importPreview.favoriteCount > 0, enabled = importPreview.favoriteCount > 0) {
+                            viewModel.setImportEntitySelected("favorites", it)
                         }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Visit History Logs:", fontSize = 12.sp, color = Mist400)
-                            Text("${importPreview.visitCount} visits", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                        BackupCheckboxRow("User Notes (${importPreview.notesCount} notes)", importSel.includeNotes && importPreview.notesCount > 0, enabled = importPreview.notesCount > 0) {
+                            viewModel.setImportEntitySelected("notes", it)
                         }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Checklist Tasks:", fontSize = 12.sp, color = Mist400)
-                            Text("${importPreview.taskCount} tasks", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                        BackupCheckboxRow("Visit Logs (${importPreview.visitCount} visits)", importSel.includeVisits && importPreview.visitCount > 0, enabled = importPreview.visitCount > 0) {
+                            viewModel.setImportEntitySelected("visits", it)
+                        }
+                        BackupCheckboxRow("Checklist Tasks (${importPreview.taskCount} tasks)", importSel.includeTasks && importPreview.taskCount > 0, enabled = importPreview.taskCount > 0) {
+                            viewModel.setImportEntitySelected("tasks", it)
                         }
                         if (importPreview.customPlacesCount > 0) {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("Custom Places:", fontSize = 12.sp, color = Mist400)
-                                Text("${importPreview.customPlacesCount} places", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Beacon400)
+                            BackupCheckboxRow("Custom Places (${importPreview.customPlacesCount} places)", importSel.includeCustomPlaces) {
+                                viewModel.setImportEntitySelected("custom", it)
                             }
                         }
                     }
@@ -6002,6 +6837,240 @@ fun SettingsScreen(
                     Text("Cancel", fontSize = 13.sp)
                 }
             }
+        )
+    }
+
+    // --- Photo Cache Inspection Dialog ---
+    if (showPhotoCacheInspectionDialog) {
+        val cachedFiles = viewModel.cachedPhotosList.value
+        AlertDialog(
+            onDismissRequest = { showPhotoCacheInspectionDialog = false },
+            containerColor = Ink900,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Beacon500)
+                    Text("Cached Flyer Photos", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        "Stored snapshots from street flyer scans and resource photo intake:",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+                    if (cachedFiles.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 24.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("No cached photos found on device.", color = Mist400, fontSize = 13.sp)
+                        }
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(cachedFiles) { photo ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Ink800, RoundedCornerShape(8.dp))
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(photo.fileName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        val dateStr = SimpleDateFormat("MMM d, yyyy HH:mm", Locale.US).format(Date(photo.lastModified))
+                                        val kbStr = String.format(Locale.US, "%.1f KB", photo.sizeBytes / 1024.0)
+                                        Text("$dateStr • $kbStr", fontSize = 10.sp, color = Mist400)
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            viewModel.deleteCachedPhoto(context, photo.fileName)
+                                            Toast.makeText(context, "Deleted ${photo.fileName}", Toast.LENGTH_SHORT).show()
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Delete photo", tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showPhotoCacheInspectionDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950)
+                ) {
+                    Text("Close", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            }
+        )
+    }
+
+    // --- Factory Re-seed Confirmation Dialog ---
+    if (showReseedConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showReseedConfirmDialog = false },
+            containerColor = Ink900,
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("🔄", fontSize = 20.sp)
+                    Text("Factory Refresh Baseline?", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "This will synchronize all standard San Francisco directory listings and EBT hot meal vendors with the latest factory baseline data.",
+                        fontSize = 13.sp,
+                        color = Mist200
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink800, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("✅ Your personal notes & bookmarks are safe", fontSize = 11.sp, color = Emerald500)
+                        Text("✅ Your visit history logs are preserved", fontSize = 11.sp, color = Emerald500)
+                        Text("✅ Custom added community places are untouched", fontSize = 11.sp, color = Emerald500)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showReseedConfirmDialog = false
+                        viewModel.triggerFactoryReseed { result ->
+                            Toast.makeText(
+                                context,
+                                "Baseline refreshed: ${result.resourcesUpdated} updated, ${result.resourcesAdded} new, ${result.rmpUpdated} RMP synced",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
+                    modifier = Modifier.testTag("confirm_reseed_button")
+                ) {
+                    Text("Confirm Refresh", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(
+                    onClick = { showReseedConfirmDialog = false },
+                    border = BorderStroke(1.dp, Ink700),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200)
+                ) {
+                    Text("Cancel", fontSize = 13.sp)
+                }
+            }
+        )
+    }
+}
+
+// --- Chunk 5 Settings Helpers ---
+@Composable
+fun BackupCheckboxRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            label,
+            fontSize = 12.sp,
+            color = if (enabled) (if (checked) Mist100 else Mist300) else Mist400.copy(alpha = 0.5f),
+            fontWeight = if (checked) FontWeight.SemiBold else FontWeight.Normal
+        )
+        Checkbox(
+            checked = checked,
+            onCheckedChange = if (enabled) onCheckedChange else null,
+            enabled = enabled,
+            colors = CheckboxDefaults.colors(
+                checkedColor = Beacon500,
+                checkmarkColor = Ink950,
+                uncheckedColor = Mist400
+            ),
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
+
+@Composable
+fun DataSourceToggleCard(
+    title: String,
+    description: String,
+    count: Int,
+    badge: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(if (checked) Ink950 else Ink900, RoundedCornerShape(8.dp))
+            .border(1.dp, if (checked) Ink800 else Ink700.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+            .padding(12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    color = if (checked) Mist100 else Mist400
+                )
+                Box(
+                    modifier = Modifier
+                        .background(if (checked) Beacon500.copy(alpha = 0.15f) else Ink800, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        badge,
+                        color = if (checked) Beacon400 else Mist400,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(description, fontSize = 11.sp, color = Mist400)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("$count entries available in directory", fontSize = 10.sp, color = if (checked) Emerald500 else Mist400)
+        }
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Beacon500,
+                checkedTrackColor = Beacon500.copy(alpha = 0.3f),
+                uncheckedThumbColor = Mist400,
+                uncheckedTrackColor = Ink800
+            )
         )
     }
 }

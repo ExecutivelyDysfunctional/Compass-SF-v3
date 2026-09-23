@@ -267,15 +267,18 @@ val LocalCompassTheme = staticCompositionLocalOf {
 // --- Dynamic Color Accessors for Composables ---
 val Ink950: Color @Composable get() = LocalCompassTheme.current.background
 val Ink900: Color @Composable get() = LocalCompassTheme.current.surface
+val Ink850: Color @Composable get() = LocalCompassTheme.current.surfaceVariant.copy(alpha = 0.7f)
 val Ink800: Color @Composable get() = LocalCompassTheme.current.surfaceVariant
 val Ink700: Color @Composable get() = LocalCompassTheme.current.border
 val Mist400: Color @Composable get() = LocalCompassTheme.current.textSecondary
+val Mist300: Color @Composable get() = LocalCompassTheme.current.textSecondary.copy(alpha = 0.8f)
 val Mist200: Color @Composable get() = LocalCompassTheme.current.textPrimary.copy(alpha = 0.85f)
 val Mist100: Color @Composable get() = LocalCompassTheme.current.textPrimary
 val Beacon500: Color @Composable get() = LocalCompassTheme.current.accent
 val Beacon400: Color @Composable get() = LocalCompassTheme.current.accentLight
 val Emerald500: Color @Composable get() = LocalCompassTheme.current.success
 val Rose500: Color @Composable get() = LocalCompassTheme.current.danger
+val Amber500: Color = Color(0xFFF59E0B)
 val OnAccentColor: Color @Composable get() = LocalCompassTheme.current.onAccent
 
 @Composable

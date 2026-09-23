@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
@@ -104,6 +105,46 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val aiCustomEndpoint = mutableStateOf("")
     val aiConnectionStatus = mutableStateOf<String?>(null)
     val isTestingAiConnection = mutableStateOf(false)
+
+    // --- Data Sources & Curated Directories UI State (Chunk 5) ---
+    val sourceShelterTechEnabled = mutableStateOf(true)
+    val sourceDataSfEnabled = mutableStateOf(true)
+    val source211Enabled = mutableStateOf(true)
+    val sourceCommunityEnabled = mutableStateOf(true)
+
+    val hasDisabledDataSources: Boolean
+        get() = !sourceShelterTechEnabled.value || !sourceDataSfEnabled.value || !source211Enabled.value || !sourceCommunityEnabled.value
+
+    fun isSourceAllowed(source: String): Boolean {
+        val s = source.lowercase().trim()
+        if (s.contains("sheltertech") || s.contains("service guide")) {
+            return sourceShelterTechEnabled.value
+        }
+        if (s.contains("datasf") || s.contains("sf.gov") || s.contains("data.sf")) {
+            return sourceDataSfEnabled.value
+        }
+        if (s.contains("211") || s.contains("eden i&r")) {
+            return source211Enabled.value
+        }
+        return sourceCommunityEnabled.value
+    }
+
+    // --- Ephemeral / Incognito Search Mode UI State (Chunk 5) ---
+    val incognitoSearchMode = mutableStateOf(false)
+    val recentSearches = mutableStateOf<List<String>>(emptyList())
+
+    // --- Photo Cache Manager UI State (Chunk 5) ---
+    val cachedPhotosList = mutableStateOf<List<CachedPhotoInfo>>(emptyList())
+    val totalPhotoCacheBytes = mutableStateOf(0L)
+
+    // --- Database Factory Re-seeding UI State (Chunk 5) ---
+    val isReseeding = mutableStateOf(false)
+    val lastReseedResult = mutableStateOf<ReseedResult?>(null)
+    val reseedErrorMessage = mutableStateOf<String?>(null)
+
+    // --- Granular Portability Selection State (Chunk 5) ---
+    val exportSelection = mutableStateOf(BackupEntitySelection())
+    val importSelection = mutableStateOf(BackupEntitySelection())
 
     val hasActivePresets: Boolean
         get() = demographicPresets.value.isNotEmpty() || accessibilityMobilityMode.value || dietaryPresets.value.isNotEmpty() || excludeNonLocationResources.value
@@ -224,6 +265,30 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             }
             repository.getSetting("ai_custom_endpoint")?.let {
                 aiCustomEndpoint.value = it
+            }
+
+            // Load Data Sources & Curated Directories Preferences (Chunk 5)
+            repository.getSetting("source_sheltertech")?.let {
+                sourceShelterTechEnabled.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("source_datasf")?.let {
+                sourceDataSfEnabled.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("source_211")?.let {
+                source211Enabled.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("source_community")?.let {
+                sourceCommunityEnabled.value = it.toBooleanStrictOrNull() ?: true
+            }
+
+            // Load Ephemeral / Incognito Search Preferences (Chunk 5)
+            repository.getSetting("incognito_search_mode")?.let {
+                incognitoSearchMode.value = it.toBooleanStrictOrNull() ?: false
+            }
+            repository.getSetting("recent_searches")?.let { raw ->
+                if (raw.isNotBlank()) {
+                    recentSearches.value = raw.split("|||").map { it.trim() }.filter { it.isNotEmpty() }
+                }
             }
 
             val locType = repository.getSetting("location_type") ?: "none"
@@ -470,6 +535,12 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                     val bytes = outputStream.toByteArray()
                     val base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
                     selectedImageBase64.value = base64
+
+                    // Save to photo cache manager
+                    try {
+                        repository.savePhotoToCache(context, scaledBitmap)
+                        refreshPhotoCacheAudit(context)
+                    } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
                 parseError.value = "Failed to load flyer photo: ${e.message}"
@@ -610,7 +681,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                 val list = repository.getAllResources()
                 val response = AiService.askAi(
                     question = askQuestion.value,
-                    resources = list.filter { !it.hidden },
+                    resources = list.filter { !it.hidden && isSourceAllowed(it.source) },
                     neighborhoodFilter = askNeighborhood.value,
                     openNowFilter = askOpenOnly.value,
                     style = aiNavigatorStyle.value,
@@ -944,7 +1015,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     suspend fun getExportJson(): String {
         isExporting.value = true
         return try {
-            val backup = repository.createBackupData()
+            val backup = repository.createBackupData(exportSelection.value)
             repository.serializeBackup(backup)
         } finally {
             isExporting.value = false
@@ -964,6 +1035,14 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         try {
             val preview = repository.parseBackupJson(jsonText)
             importPreviewState.value = preview
+            // Initialize import selection based on available data
+            importSelection.value = BackupEntitySelection(
+                includeFavorites = preview.favoriteCount > 0,
+                includeNotes = preview.notesCount > 0,
+                includeVisits = preview.visitCount > 0,
+                includeTasks = preview.taskCount > 0,
+                includeCustomPlaces = preview.customPlacesCount > 0
+            )
         } catch (e: Exception) {
             importErrorMessage.value = "Failed to parse backup JSON: ${e.localizedMessage ?: "Invalid or incompatible format"}"
             importPreviewState.value = null
@@ -975,7 +1054,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         isImporting.value = true
         viewModelScope.launch {
             try {
-                val result = repository.restoreBackup(preview.rawBackup)
+                val result = repository.restoreBackup(preview.rawBackup, importSelection.value)
                 lastImportResult.value = result
                 importPreviewState.value = null
                 onSuccess(result)
@@ -994,5 +1073,161 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
     fun dismissLastImportResult() {
         lastImportResult.value = null
+    }
+
+    // --- Granular Selection Helpers (Chunk 5) ---
+    fun setExportEntitySelected(entity: String, selected: Boolean) {
+        val current = exportSelection.value
+        exportSelection.value = when (entity) {
+            "favorites" -> current.copy(includeFavorites = selected)
+            "notes" -> current.copy(includeNotes = selected)
+            "visits" -> current.copy(includeVisits = selected)
+            "tasks" -> current.copy(includeTasks = selected)
+            "custom" -> current.copy(includeCustomPlaces = selected)
+            else -> current
+        }
+    }
+
+    fun setExportSelectAll(selectAll: Boolean) {
+        exportSelection.value = BackupEntitySelection(
+            includeFavorites = selectAll,
+            includeNotes = selectAll,
+            includeVisits = selectAll,
+            includeTasks = selectAll,
+            includeCustomPlaces = selectAll
+        )
+    }
+
+    fun setImportEntitySelected(entity: String, selected: Boolean) {
+        val current = importSelection.value
+        importSelection.value = when (entity) {
+            "favorites" -> current.copy(includeFavorites = selected)
+            "notes" -> current.copy(includeNotes = selected)
+            "visits" -> current.copy(includeVisits = selected)
+            "tasks" -> current.copy(includeTasks = selected)
+            "custom" -> current.copy(includeCustomPlaces = selected)
+            else -> current
+        }
+    }
+
+    fun setImportSelectAll(selectAll: Boolean) {
+        importSelection.value = BackupEntitySelection(
+            includeFavorites = selectAll,
+            includeNotes = selectAll,
+            includeVisits = selectAll,
+            includeTasks = selectAll,
+            includeCustomPlaces = selectAll
+        )
+    }
+
+    // --- Ephemeral / Incognito Search Methods (Chunk 5) ---
+    fun toggleIncognitoSearchMode(enabled: Boolean) {
+        incognitoSearchMode.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("incognito_search_mode", enabled.toString())
+        }
+    }
+
+    fun addRecentSearch(query: String) {
+        val trimmed = query.trim()
+        if (incognitoSearchMode.value || trimmed.length < 2) return
+        val current = recentSearches.value.toMutableList()
+        current.removeAll { it.equals(trimmed, ignoreCase = true) }
+        current.add(0, trimmed)
+        val updated = current.take(8)
+        recentSearches.value = updated
+        viewModelScope.launch {
+            repository.saveSetting("recent_searches", updated.joinToString("|||"))
+        }
+    }
+
+    fun removeRecentSearch(query: String) {
+        val updated = recentSearches.value.filterNot { it.equals(query.trim(), ignoreCase = true) }
+        recentSearches.value = updated
+        viewModelScope.launch {
+            repository.saveSetting("recent_searches", updated.joinToString("|||"))
+        }
+    }
+
+    fun clearRecentSearches() {
+        recentSearches.value = emptyList()
+        viewModelScope.launch {
+            repository.saveSetting("recent_searches", "")
+        }
+    }
+
+    // --- Curated Data Sources Methods (Chunk 5) ---
+    fun toggleDataSource(key: String, enabled: Boolean) {
+        when (key.lowercase()) {
+            "sheltertech" -> sourceShelterTechEnabled.value = enabled
+            "datasf" -> sourceDataSfEnabled.value = enabled
+            "211" -> source211Enabled.value = enabled
+            "community" -> sourceCommunityEnabled.value = enabled
+        }
+        viewModelScope.launch {
+            repository.saveSetting("source_$key", enabled.toString())
+        }
+    }
+
+    fun resetDataSourcesToDefaults() {
+        sourceShelterTechEnabled.value = true
+        sourceDataSfEnabled.value = true
+        source211Enabled.value = true
+        sourceCommunityEnabled.value = true
+        viewModelScope.launch {
+            repository.saveSetting("source_sheltertech", "true")
+            repository.saveSetting("source_datasf", "true")
+            repository.saveSetting("source_211", "true")
+            repository.saveSetting("source_community", "true")
+        }
+    }
+
+    // --- Photo Cache Manager Methods (Chunk 5) ---
+    fun refreshPhotoCacheAudit(context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val files = repository.getPhotoCacheFiles(context)
+            val total = files.sumOf { it.sizeBytes }
+            cachedPhotosList.value = files
+            totalPhotoCacheBytes.value = total
+        }
+    }
+
+    fun deleteCachedPhoto(context: Context, fileName: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.deletePhotoCacheFile(context, fileName)
+            refreshPhotoCacheAudit(context)
+        }
+    }
+
+    fun clearAllPhotoCache(context: Context, onCleared: (Int) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val count = repository.clearAllPhotoCache(context)
+            refreshPhotoCacheAudit(context)
+            withContext(Dispatchers.Main) {
+                onCleared(count)
+            }
+        }
+    }
+
+    // --- Database Factory Re-seeding Methods (Chunk 5) ---
+    fun triggerFactoryReseed(onComplete: (ReseedResult) -> Unit) {
+        isReseeding.value = true
+        reseedErrorMessage.value = null
+        viewModelScope.launch {
+            try {
+                val result = repository.factoryReseedDatabase()
+                lastReseedResult.value = result
+                onComplete(result)
+            } catch (e: Exception) {
+                reseedErrorMessage.value = "Failed to refresh database: ${e.message}"
+            } finally {
+                isReseeding.value = false
+            }
+        }
+    }
+
+    fun dismissReseedResult() {
+        lastReseedResult.value = null
+        reseedErrorMessage.value = null
     }
 }

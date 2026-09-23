@@ -277,6 +277,88 @@ data class ImportResult(
     val customPlacesRestored: Int
 )
 
+// --- Granular Portability Selection (Chunk 5) ---
+@Serializable
+data class BackupEntitySelection(
+    val includeFavorites: Boolean = true,
+    val includeNotes: Boolean = true,
+    val includeVisits: Boolean = true,
+    val includeTasks: Boolean = true,
+    val includeCustomPlaces: Boolean = true
+) {
+    val noneSelected: Boolean
+        get() = !includeFavorites && !includeNotes && !includeVisits && !includeTasks && !includeCustomPlaces
+
+    val allSelected: Boolean
+        get() = includeFavorites && includeNotes && includeVisits && includeTasks && includeCustomPlaces
+
+    val countSelected: Int
+        get() = listOf(includeFavorites, includeNotes, includeVisits, includeTasks, includeCustomPlaces).count { it }
+}
+
+// --- Photo Cache Manager Models (Chunk 5) ---
+data class CachedPhotoInfo(
+    val fileName: String,
+    val absolutePath: String,
+    val sizeBytes: Long,
+    val lastModified: Long,
+    val formattedSize: String
+)
+
+// --- Factory Reseed Results (Chunk 5) ---
+data class ReseedResult(
+    val resourcesUpdated: Int,
+    val resourcesAdded: Int,
+    val rmpUpdated: Int,
+    val rmpAdded: Int,
+    val tasksChecked: Int
+) {
+    val totalChanges: Int
+        get() = resourcesUpdated + resourcesAdded + rmpUpdated + rmpAdded
+}
+
+// --- Data Source Identifiers (Chunk 5) ---
+enum class DirectorySource(
+    val key: String,
+    val displayName: String,
+    val badge: String,
+    val description: String,
+    val icon: String
+) {
+    SHELTERTECH(
+        key = "sheltertech",
+        displayName = "SF Service Guide",
+        badge = "Grassroots",
+        description = "Curated directory by ShelterTech volunteer network & homeless advocates",
+        icon = "🤝"
+    ),
+    DATASF(
+        key = "datasf",
+        displayName = "DataSF Open Data",
+        badge = "Official City Data",
+        description = "San Francisco municipal public health, food access, and clinic registry",
+        icon = "🏛️"
+    ),
+    BAYAREA_211(
+        key = "211",
+        displayName = "211 Bay Area",
+        badge = "Hotline Network",
+        description = "Eden I&R health and human service database across the Bay Area",
+        icon = "📞"
+    ),
+    COMMUNITY(
+        key = "community",
+        displayName = "Community Submissions",
+        badge = "User Added",
+        description = "Locally added resources and custom flyer intakes parsed on-device",
+        icon = "📍"
+    );
+
+    companion object {
+        fun fromKey(key: String): DirectorySource? = entries.find { it.key.equals(key, ignoreCase = true) }
+    }
+}
+
 // --- Search, Accessibility & Demographic Presets (Chunk 3) ---
 
 @Serializable

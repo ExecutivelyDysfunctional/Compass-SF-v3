@@ -112,13 +112,18 @@
 - **Mobile Ergonomics & Safeguards (Pixel 8 Pro Standards)**:
   - **Edge-to-Edge Native Viewport**: Active `enableEdgeToEdge()` with system bar safe insets and navigation bar padding preventing UI clipping across gesture and 3-button navigation.
   - **44px / 48dp Minimum Touch Targets**: Full audit across all interactive elements (List/Map switchers, filter toggles, favorite buttons, AssistChips, dropdown triggers, and checklist items) ensuring easy single-handed thumb operation.
+  - **Chunk 5: Privacy, Data Sources & Granular Portability**:
+    - **Curated Civic Data Sources & Feed Toggles**: Dedicated controls to toggle authoritative civic feeds queried across directory and maps: ShelterTech / SF Service Guide (civic open data), DataSF (SF Gov registry), 211 Bay Area (Eden I&R), and Community / Street Flyer Extractions. Filter warnings and one-tap reset banners dynamically alert users when sources are filtered.
+    - **Ephemeral / Incognito Search Mode & Query Privacy**: Zero-retention incognito browsing toggle ensuring search queries are never stored in recent history or database storage. Quick-clear chip row and in-situ incognito indicator badge on Find directory search.
+    - **Flyer Photo Cache Manager**: Audit tool displaying total offline storage footprint of cached intake flyers and photos, with file inspection dialog (file name, timestamp, size) and selective or bulk cache purging.
+    - **Database Factory Baseline Re-seeding**: Safe baseline synchronization refreshing core directory listings, hours, and EBT hot meal vendors to the latest curated seed dataset while strictly preserving private user notes, bookmarks, visits, and custom community places.
+    - **Granular Data Portability (Custom Export & Import Selection)**: Checkbox selectors allowing users to cherry-pick which entity categories (Favorites, User Notes, Visit History Logs, Checklist Tasks, Custom Places) to include during export or merge during backup restoration.
   - **Visual Error Handling**: Comprehensive on-screen visual banners and Toasts for all external intent launches (Maps directions, phone dialers, web links), API queries, and JSON import/export operations, completely eliminating silent failures.
 
 ---
 
 ## [Next Up]
 - **Settings & Modularity Enhancements**:
-  - **Chunk 5: Privacy, Data Sources & Granular Portability**: Granular backup/restore checkboxes (export/import specific entity sets), ephemeral/incognito search mode, photo cache manager, data source toggles, and database factory re-seeding.
   - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
 - **Resource Verification & Community Wait Time Analytics**: Extended historical wait time graphing and crowdsourced open-now confirmation telemetry.
 
