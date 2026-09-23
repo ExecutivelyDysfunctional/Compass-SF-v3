@@ -2,23 +2,64 @@
 
 ## Project Architecture & Delivery Mode
 - **Mode:** Multi-File Mode (Native Android application built with Kotlin, Jetpack Compose, Room Database, and Retrofit)
+- **Application ID:** `com.aistudio.compasssf.xjqrzs`
+- **Target SDK / Compile SDK:** Android 36 (Java 21)
 
 ---
 
 ## [Implemented]
 - **Deterministic Debug APK Naming**:
-  - Configured Gradle Kotlin DSL task in `app/build.gradle.kts` to output the debug APK as `debug-compass-sf.apk`.
+  - Configured Gradle Kotlin DSL task (`renameDebugApk`) in `app/build.gradle.kts` to output the debug APK as `debug-compass-sf.apk`.
   - Automatically triggers on `./gradlew assembleDebug` and `./gradlew assemble` builds, placing the final artifact at `app/build/outputs/apk/debug/debug-compass-sf.apk` without modifying release build settings.
 - **CI/CD Canonical Workflow & Credential Hardening**:
   - Consolidated all workflow files into a single, clean `.github/workflows/build-apk.yml`.
-  - Resolved `sdkmanager` failure by explicitly configuring modern, non-obsolete SDK packages (`platform-tools`, `platforms;android-36`, `build-tools;36.0.0`) in `android-actions/setup-android@v3` and preventing obsolete `tools` package resolution.
-  - Removed old deprecated workflow variants (`build-apk-balanced-hybrid_Version5.yml`, `build-apk-fast-resilient_Version5.yml`, `build-apk-high-feedback_Version5.yml`).
+  - Configured modern, non-obsolete SDK packages (`platform-tools`, `platforms;android-36`, `build-tools;36.0.0`) in `android-actions/setup-android@v3`.
   - Configured automated triggers on `push` and `pull_request` to `main`, plus `workflow_dispatch` with manual `diagnostics` input (normal, verbose, debug).
   - Configured least-privilege `contents: read` permissions and concurrency run cancellation.
   - Hardened credential security: removed hardcoded fallback API keys in `app/build.gradle.kts` and `AiService.kt`, strictly sourcing `GEMINI_API_KEY` from environment / GitHub repository secrets with graceful offline fallback.
-- **Settings & Modularity (Chunk 3)**: Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+), mobility/wheelchair accessibility priority toggle, and dietary filter presets (Halal, Vegetarian, Kosher). All fully wired into Find, EBT, Now, and Map screens.
+- **Relevance Profile & Personalization Engine (Chunk 3 & Profile Subsystem)**:
+  - 100% on-device, zero-cloud user profile (`UserProfile`) persisting in Room SQLite database.
+  - Multi-factor scoring and ranking engine (`ResourceRelevance.scoreResource` / `rankResources`):
+    - **Primary Needs Boosting**: Direct category and keyword matching across 12 civic need domains (Food, Shelter, Hygiene, Medical, Mental Health/Crisis, ID/Docs, Benefits/EBT, Legal, Jobs, Transportation, Pets, Community).
+    - **Demographic Affinity Boosting**: Priority ranking for affirming resources matching demographic filters (Youth/TAY, Seniors, Families, Veterans, LGBTQ+, Women/Non-binary).
+    - **Dietary Affinity Boosting**: Food resource scoring matching dietary constraints (Halal, Vegetarian/Vegan, Kosher).
+    - **Step-Free Accessibility Boosting**: Elevates verified ADA, step-free, ground-floor entrance services when mobility mode is active.
+    - **Neighborhood Anchor Proximity**: Preference boost for resources located in the user's preferred SF neighborhood.
+    - **Access Method Matching**: Prioritizes walk-in drop-in sites, phone helplines, or web portals based on user intake preference.
+    - **Language Affirmation**: Boosts services offering explicit language support matching user profile.
+  - Non-exclusive fallback behavior: profile-boosted resources rank higher while never strictly hiding unmatched civic resources.
+  - In-app profile status banner on Now & Settings screens with live active preference counter.
+  - Full automated unit test suite (`ResourceRelevanceTest.kt`) verifying JSON roundtrip, boosting dimensions, and non-exclusion guarantees.
+- **Settings & Modularity (Chunks 1 – 5)**:
+  - **Chunk 1: Navigation & Workspace Config**: Configure default initial landing screen (Now, Map, Find, or Day), dynamic reorderable 2-6 bottom bar navigation tabs, persistent default SF neighborhood anchor, and quick workspace reset.
+  - **Chunk 2: Map & Cartography Controls**:
+    - **Map Vector Layer Toggles**: Dedicated controls for Transit Lines & Subway (BART tunnels, Muni Metro light rail routes, and station nodes), Neighborhood Boundary Outlines (Tenderloin, SoMa, Mission, Civic Center, Chinatown, Castro, etc.), and Street Names & Landmark Badges (City Hall, Ferry Bldg, etc.).
+    - **Marker Clustering Density Selector**: Granular clustering mode selection (`Tight` / 32dp, `Balanced` / 50dp, `Spread` / 75dp) controlling how closely grouped pins merge into numbered cluster bubbles.
+    - **Battery Saver / Reduced Motion Mode**: Toggle that disables high-frequency canvas animations and continuous pulsing GPS radar waves to minimize battery consumption when walking outdoors.
+    - **Quick Reset for Map Settings**: Dedicated reset button restoring all cartography layer options, clustering radius, and animations to recommended defaults.
+  - **Chunk 3: Search, Accessibility & Demographic Presets**:
+    - Global demographic filter presets (Youth, Seniors, Families, Veterans, LGBTQ+, Women/Non-binary).
+    - Step-free mobility / wheelchair accessibility priority toggle.
+    - Dietary filter presets (Halal, Vegetarian/Vegan, Kosher).
+    - Exclude non-location / hotline-only resource toggle.
+    - Fully wired into Find, EBT, Now, and Map screens with active preset indicator banners.
+  - **Chunk 4: AI Navigator Customization & Gemini Integration**:
+    - **Response Format & Conciseness Style Selector**: 3 dedicated operating modes (`⚡ Quick Street Action` for 1-2 sentence immediate triage, `🧭 Step-by-Step Guide` for balanced hours/steps walkthrough, and `📋 Comprehensive Caseworker Mode` for deep eligibility criteria and document checklists).
+    - **Active Style Chips on Ask Screen**: In-situ mode switcher and live indicator banner directly on `AskScreen` for frictionless toggling while querying.
+    - **Offline-Only Heuristics Engine Toggle**: Option to force 100% on-device tag, keyword, and Haversine distance matching algorithms, completely bypassing external Gemini network requests to save cellular data and function without cell reception.
+    - **Custom Gemini API Key & Dynamic Endpoint Configuration**: Full support for personal Google AI Studio Gemini API keys and custom proxy/base URL endpoints, with runtime credential testing (`testAiConnection`), masked password inputs, and instant reset to defaults.
+    - **Room SQLite Persistence**: All AI settings (`aiNavigatorStyle`, `aiOfflineOnly`, `aiCustomApiKey`, `aiCustomEndpoint`) automatically load on app start and persist in SQLite.
+  - **Chunk 5: Privacy, Data Sources & Granular Portability**:
+    - **Curated Civic Data Sources & Feed Toggles**: Dedicated controls to toggle authoritative civic feeds queried across directory and maps: ShelterTech / SF Service Guide (civic open data), DataSF (SF Gov registry), 211 Bay Area (Eden I&R), and Community / Street Flyer Extractions. Filter warnings and one-tap reset banners dynamically alert users when sources are filtered.
+    - **Ephemeral / Incognito Search Mode & Query Privacy**: Zero-retention incognito browsing toggle ensuring search queries are never stored in recent history or database storage. Quick-clear chip row and in-situ incognito indicator badge on Find directory search.
+    - **Flyer Photo Cache Manager**: Audit tool displaying total offline storage footprint of cached intake flyers and photos, with file inspection dialog (file name, timestamp, size) and selective or bulk cache purging.
+    - **Database Factory Baseline Re-seeding**: Safe baseline synchronization refreshing core directory listings, hours, and EBT hot meal vendors to the latest curated seed dataset while strictly preserving private user notes, bookmarks, visits, and custom community places.
+    - **Granular Data Portability (Custom Export & Import Selection)**: Checkbox selectors allowing users to cherry-pick which entity categories (Favorites, User Notes, Visit History Logs, Checklist Tasks, Custom Places) to include during export or merge during backup restoration.
+  - **Quick Settings Index & Jump Navigation**: Fast-jump index grid at the top of the Settings screen with interactive direct-scroll buttons (Navigation, Filters, AI Navigator, Themes, Accents, Text Size, Display, Map Layers, App Icon, Backup & Restore, Hidden Manager, App Statistics), matching numbered section badges on each card, quick "Index ↑" return buttons, and a floating animated "Scroll to Top" button.
 - **Now Screen (Today's Navigator Dashboard)**:
   - Time-of-day greeting ("Good morning", "Good afternoon", "Good evening, traveler") with subtitle.
+  - Location and walking proximity bar with live GPS / neighborhood anchor selector.
+  - Active Presets and Relevance Profile status banners.
   - Quick Category shortcut pills (Food, Shelter, Hygiene, Connect, EBT/Benefits, Medical) routing to Find tab with preset filter.
   - "My Day Checklist" task summary card with direct one-tap toggle completion.
   - "Open Right Now in SF" real-time spotlight cards dynamically verified against current time and day schedule blocks.
@@ -36,13 +77,13 @@
   - Real-time text search across resource names, summaries, descriptions, sources, and tags.
   - Multi-axis filtering: Category chips (All, Food, Shelter, Hygiene, Health, Crisis, ID/Docs, Benefits, Legal, Connect), Neighborhood dropdown (Tenderloin, SoMa, Mission, etc.), and Data Source dropdown (ShelterTech SF Service Guide, DataSF, 211 Bay Area).
   - Quick-action toggle filters: Open Now (verified against current time), Favorites Only, and Hidden items.
+  - Proximity walking distance sorting when location is active.
   - Dedicated "Map" switcher action seamlessly routing to the full-screen Map experience with current category filters preserved.
 - **Ask Screen (Navigator AI - Gemini Integration)**:
   - Natural language street navigation and resource consultation powered by Gemini 3.5 Flash via Retrofit.
-  - Resolved issue where Ask AI reverted to offline fallback: updated Gemini REST API payload serialization from unsupported `responseFormat` to canonical `responseMimeType: "application/json"` and `responseSchema`, and robustified API key resolution across environment variables and `.env`/`.env.example` configurations.
   - Query input with optional neighborhood filter and "Open now only" toggle constraint.
   - Structured response rendering: conversational guidance summary, numbered logical next steps, and specific database-linked "Navigator Picks" with justification.
-  - Built-in offline fallback matcher if API key is unconfigured or network is unavailable.
+  - Built-in offline fallback matcher if API key is unconfigured, offline-only mode is selected, or network is unavailable.
 - **Day Screen (My Day & Checklist Engine)**:
   - Task manager with categorized tags (appointment, errand, document, benefit, housing, health, other).
   - Quick task creation dialog (title, category, priority, notes) and task deletion/completion.
@@ -52,6 +93,7 @@
   - Comprehensive searchable directory of San Francisco CalFresh EBT hot meal restaurant locations.
   - Cuisine filter (Burgers, Mexican, Halal, Pizza, etc.) and neighborhood filter.
   - Favorites filter, chain vs local restaurant filter, and "Open Now" filter.
+  - Proximity walking distance calculation for each restaurant.
   - Educational collapsible banner explaining EBT card coding requirements and restaurant checkout rules.
   - Community submission modal to report new EBT hot-meal accepting vendors.
 - **Detail Screen**:
@@ -67,21 +109,6 @@
   - **Pinch-to-Zoom Image Viewer**: Tap any flyer thumbnail to open a full-screen, interactive image viewer with pinch-to-zoom and pan gestures to verify text while parsing data.
   - AI-assisted unstructured flyer/text parsing into structured database fields.
   - Manual entry fallback editor for submitting new community resources.
-- **Settings & Modularity Enhancements (Chunk 1, Chunk 2, & Chunk 4)**:
-  - **Chunk 1: Navigation & Workspace Config**: Configure default initial landing screen (Now, Map, Find, or Day), dynamic reorderable 2-6 bottom bar navigation tabs, persistent default SF neighborhood anchor, and quick workspace reset.
-  - **Chunk 2: Map & Cartography Controls**:
-    - **Map Vector Layer Toggles**: Dedicated controls for Transit Lines & Subway (BART tunnels, Muni Metro light rail routes, and station nodes), Neighborhood Boundary Outlines (Tenderloin, SoMa, Mission, Civic Center, Chinatown, Castro, etc.), and Street Names & Landmark Badges (City Hall, Ferry Bldg, etc.).
-    - **Marker Clustering Density Selector**: Granular clustering mode selection (`Tight` / 32dp, `Balanced` / 50dp, `Spread` / 75dp) controlling how closely grouped pins merge into numbered cluster bubbles.
-    - **Battery Saver / Reduced Motion Mode**: Toggle that disables high-frequency canvas animations and continuous pulsing GPS radar waves to minimize battery consumption when walking outdoors.
-    - **Quick Reset for Map Settings**: Dedicated reset button restoring all cartography layer options, clustering radius, and animations to recommended defaults.
-    - **Room Persistence**: All map cartography preferences automatically persist in Room SQLite database.
-  - **Chunk 4: AI Navigator Customization & Gemini Integration**:
-    - **Response Format & Conciseness Style Selector**: 3 dedicated operating modes (`⚡ Quick Street Action` for 1-2 sentence immediate triage, `🧭 Step-by-Step Guide` for balanced hours/steps walkthrough, and `📋 Comprehensive Caseworker Mode` for deep eligibility criteria and document checklists).
-    - **Active Style Chips on Ask Screen**: In-situ mode switcher and live indicator banner directly on `AskScreen` for frictionless toggling while querying.
-    - **Offline-Only Heuristics Engine Toggle**: Option to force 100% on-device tag, keyword, and Haversine distance matching algorithms, completely bypassing external Gemini network requests to save cellular data and function without cell reception.
-    - **Custom Gemini API Key & Dynamic Endpoint Configuration**: Full support for personal Google AI Studio Gemini API keys and custom proxy/base URL endpoints, with runtime credential testing (`testAiConnection`), masked password inputs, and instant reset to defaults.
-    - **Room SQLite Persistence**: All AI settings (`aiNavigatorStyle`, `aiOfflineOnly`, `aiCustomApiKey`, `aiCustomEndpoint`) automatically load on app start and persist in SQLite.
-  - **Quick Settings Index & Jump Navigation**: Fast-jump index grid at the top of the Settings screen with interactive direct-scroll buttons (Navigation, Filters, AI Navigator, Themes, Accents, Text Size, Display, Map Layers, App Icon, Backup & Restore, Hidden Manager, App Statistics), matching numbered section badges on each card, quick "Index ↑" return buttons, and a floating animated "Scroll to Top" button.
 - **Share Resource Card**:
   - Android share sheet integration (`Intent.ACTION_SEND`) and one-tap clipboard copy for formatted resource and EBT hot-meal restaurant summaries.
   - Full address, hours, category, eligibility, phone, website, and street navigator tips structured cleanly for SMS/messaging to clients or friends.
@@ -112,21 +139,24 @@
   - Visual walking distance badges (e.g. `🚶 0.3 mi` or `🚶 < 250 ft`) displayed across all `ResourceCard` and `RmpCard` components.
 - **Mobile Ergonomics & Safeguards (Pixel 8 Pro Standards)**:
   - **Edge-to-Edge Native Viewport**: Active `enableEdgeToEdge()` with system bar safe insets and navigation bar padding preventing UI clipping across gesture and 3-button navigation.
-  - **44px / 48dp Minimum Touch Targets**: Full audit across all interactive elements (List/Map switchers, filter toggles, favorite buttons, AssistChips, dropdown triggers, and checklist items) ensuring easy single-handed thumb operation.
-  - **Chunk 5: Privacy, Data Sources & Granular Portability**:
-    - **Curated Civic Data Sources & Feed Toggles**: Dedicated controls to toggle authoritative civic feeds queried across directory and maps: ShelterTech / SF Service Guide (civic open data), DataSF (SF Gov registry), 211 Bay Area (Eden I&R), and Community / Street Flyer Extractions. Filter warnings and one-tap reset banners dynamically alert users when sources are filtered.
-    - **Ephemeral / Incognito Search Mode & Query Privacy**: Zero-retention incognito browsing toggle ensuring search queries are never stored in recent history or database storage. Quick-clear chip row and in-situ incognito indicator badge on Find directory search.
-    - **Flyer Photo Cache Manager**: Audit tool displaying total offline storage footprint of cached intake flyers and photos, with file inspection dialog (file name, timestamp, size) and selective or bulk cache purging.
-    - **Database Factory Baseline Re-seeding**: Safe baseline synchronization refreshing core directory listings, hours, and EBT hot meal vendors to the latest curated seed dataset while strictly preserving private user notes, bookmarks, visits, and custom community places.
-    - **Granular Data Portability (Custom Export & Import Selection)**: Checkbox selectors allowing users to cherry-pick which entity categories (Favorites, User Notes, Visit History Logs, Checklist Tasks, Custom Places) to include during export or merge during backup restoration.
+  - **48dp Minimum Touch Targets**: Full audit across all interactive elements (List/Map switchers, filter toggles, favorite buttons, AssistChips, dropdown triggers, and checklist items) ensuring easy single-handed thumb operation.
   - **Visual Error Handling**: Comprehensive on-screen visual banners and Toasts for all external intent launches (Maps directions, phone dialers, web links), API queries, and JSON import/export operations, completely eliminating silent failures.
+
+- **Reminders & Street Alerts Subsystem (Chunk 6)**:
+  - **On-Device Street Alert Engine (`StreetAlertEngine`)**: Real-time evaluation of critical daily SF meal service lines and intake lottery cutoffs (e.g. St. Anthony lunch cutoff at 1:30 PM, Glide Memorial dinner at 5:30 PM, NextDoor / MSC South intake deadlines, mobile hygiene trailers).
+  - **Severe Weather & Shelter Protocol Detection**: Automated SF Winter & Cold Night shelter protocol alerts informing users of emergency overnight warming centers.
+  - **Dynamic In-App Street Alerts Banner (`StreetAlertsBanner`)**: Real-time urgency-coded (Critical, Warning, Info) banner on the Now screen displaying remaining minutes to cutoff, location details, quick "View Open Meals" navigation, and "Notify Me" trigger.
+  - **Morning Street Briefing (`MorningBriefingCard`)**: Daily morning navigator briefing summarizing open meal counts, top neighborhood recommendations, daily weather, and pending checklist tasks.
+  - **Custom Street Reminders Subsystem (`StreetReminder` & `AddStreetReminderDialog`)**: Allows users to configure lead-time notifications (15, 30, 45, 60 mins) for closing meal lines, intake appointments, or custom errands.
+  - **Resource Detail Integration**: One-tap "Set Service Reminder" button in `DetailScreen` top action bar pre-filling resource name and closing time into the reminder creator.
+  - **Settings Management (`StreetRemindersSettingsSection`)**: Full control over meal cutoff alerts, warning lead time, morning briefing, severe weather advisories, haptic buzz/sound toggles, common deadline seeding, and test alert push notifications.
+  - **Android 13+ Notification Handling (`NotificationHelper`)**: Dedicated notification channels (`street_meals`, `street_briefing`, `street_tasks`, `street_weather`), runtime permission handling, and haptic feedback.
 
 ---
 
 ## [Next Up]
-- **Settings & Modularity Enhancements**:
-  - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
-- **Resource Verification & Community Wait Time Analytics**: Extended historical wait time graphing and crowdsourced open-now confirmation telemetry.
+- **Resource Verification & Community Wait Time Analytics**: Extended historical wait time graphing, crowdsourced open-now confirmation telemetry, and recent visit logs.
+- **Offline Map Vector Enhancements & Transit Schedule Insights**: Additional transit route overlays and detailed Muni/BART departure guidance.
 
 ---
 
@@ -142,21 +172,21 @@
 - `.github/workflows/build-apk.yml` - Canonical GitHub Actions Android debug build workflow with diagnostics, caching, and artifact uploads
 - `APP_STATE.md` - Central application state registry and roadmap
 - `metadata.json` - Platform metadata and app identity
-- `app/build.gradle.kts` - Gradle module configuration and dependencies
-- `app/src/main/AndroidManifest.xml` - Android application manifest
+- `app/build.gradle.kts` - Gradle module configuration, renameDebugApk task, and dependencies
+- `app/src/main/AndroidManifest.xml` - Android application manifest with permissions and theme setup
 - `app/src/main/res/values/strings.xml` - Android localized strings
-- `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` - Adaptive launcher icon
+- `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` - Adaptive launcher icon definition
 - `app/src/main/res/drawable/ic_launcher_background.xml` - Launcher background drawable
 - `app/src/main/res/drawable/ic_launcher_foreground.xml` - Launcher foreground drawable
-- `app/src/main/java/com/example/MainActivity.kt` - Main Activity, top bar, FAB, bottom navigation, and NavHost routing
-- `app/src/main/java/com/example/ui/Screens.kt` - Compose screens (Now, Find, Ask, Day, Ebt, Add, Info, Settings, Detail)
-- `app/src/main/java/com/example/ui/ComposeCanvasMap.kt` - Native Jetpack Compose Canvas vector map engine with gesture pan/zoom, clustering, radar, and preview cards
+- `app/src/main/java/com/example/MainActivity.kt` - Main Activity, top bar, FAB, dynamic bottom navigation, and NavHost routing
+- `app/src/main/java/com/example/ui/Screens.kt` - Compose screens (Now, Find, Ask, Day, Ebt, Add, Info, Settings, Detail, Photo Viewer, Dialogs)
+- `app/src/main/java/com/example/ui/ComposeCanvasMap.kt` - Native Jetpack Compose Canvas vector map engine with gesture pan/zoom, clustering, radar, transit layers, and preview cards
 - `app/src/main/java/com/example/ui/Navigation.kt` - Screen sealed class definitions and CompassViewModel state management
 - `app/src/main/java/com/example/ui/Theme.kt` - Custom M3 theming system, theme modes, accent palettes, and typography scaling
 - `app/src/main/java/com/example/data/LocationHelper.kt` - 100% on-device Haversine proximity calculations and SF neighborhood anchor resolution
-- `app/src/main/java/com/example/data/Models.kt` - Room entities, data transfer objects, and JSON converters
+- `app/src/main/java/com/example/data/Models.kt` - Room entities, data transfer objects, UserProfile, Relevance matching, demographic & dietary presets, and JSON converters
 - `app/src/main/java/com/example/data/Database.kt` - Room Database definition and ResourceDao interface
-- `app/src/main/java/com/example/data/Repository.kt` - CompassRepository data access layer and DB seeding logic
-- `app/src/main/java/com/example/data/AiService.kt` - Gemini 3.5 Flash REST client, structured parsing, and offline fallbacks
+- `app/src/main/java/com/example/data/Repository.kt` - CompassRepository data access layer, backup/restore logic, cache management, and DB seeding
+- `app/src/main/java/com/example/data/AiService.kt` - Gemini 3.5 Flash REST client, structured parsing, connection tester, and offline fallbacks
 - `app/src/main/java/com/example/data/SeedData.kt` - Pre-seeded curated SF community resources and EBT restaurant locations
-Updated UI to add filters and presets, and wired them into Find, EBT, Now, and Map screens.
+- `app/src/test/java/com/example/ResourceRelevanceTest.kt` - Unit tests for UserProfile serialization, relevance ranking, and multi-factor scoring

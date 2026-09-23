@@ -150,6 +150,27 @@ data class Capture(
     val createdAt: Long = System.currentTimeMillis()
 )
 
+@Entity(tableName = "street_reminders")
+@Serializable
+data class StreetReminder(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val description: String = "",
+    val reminderType: String = "meal_deadline", // meal_deadline | shelter_intake | hygiene_cutoff | task_due | custom | clinic_intake | weather
+    val resourceId: Int? = null,
+    val resourceName: String? = null,
+    val taskId: Int? = null,
+    val targetTimeText: String = "", // e.g. "1:30 PM"
+    val leadMinutes: Int = 30, // alert X minutes before event
+    val triggerHour: Int = 12, // 0..23
+    val triggerMinute: Int = 0, // 0..59
+    val daysOfWeek: List<Int> = emptyList(), // 1..7 (Calendar.SUNDAY..SATURDAY) or empty for every day / one-off
+    val enabled: Boolean = true,
+    val isSnoozed: Boolean = false,
+    val snoozeUntilMillis: Long? = null,
+    val createdAt: Long = System.currentTimeMillis()
+)
+
 // --- Type Converters for Room ---
 class Converters {
     private val json = Json { ignoreUnknownKeys = true }
@@ -159,6 +180,16 @@ class Converters {
 
     @TypeConverter
     fun toStringList(value: String): List<String> = try {
+        json.decodeFromString(value)
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    @TypeConverter
+    fun fromIntList(value: List<Int>): String = json.encodeToString(value)
+
+    @TypeConverter
+    fun toIntList(value: String): List<Int> = try {
         json.decodeFromString(value)
     } catch (e: Exception) {
         emptyList()
@@ -186,6 +217,21 @@ class Converters {
 }
 
 // --- Backup and Restore Models ---
+
+@Serializable
+data class StreetReminderBackup(
+    val id: Int = 0,
+    val title: String,
+    val description: String = "",
+    val reminderType: String = "meal_deadline",
+    val resourceId: Int? = null,
+    val resourceName: String? = null,
+    val targetTimeText: String = "",
+    val leadMinutes: Int = 30,
+    val triggerHour: Int = 12,
+    val triggerMinute: Int = 0,
+    val enabled: Boolean = true
+)
 
 @Serializable
 data class ResourceUserDataBackup(
@@ -237,13 +283,14 @@ data class TaskBackup(
 @Serializable
 data class BackupMetadata(
     val app: String = "Compass SF",
-    val version: Int = 1,
+    val version: Int = 2,
     val exportedAt: Long = System.currentTimeMillis(),
     val exportedDateFormatted: String = "",
     val totalFavorites: Int = 0,
     val totalNotes: Int = 0,
     val totalVisits: Int = 0,
     val totalTasks: Int = 0,
+    val totalReminders: Int = 0,
     val totalCustomPlaces: Int = 0
 )
 
@@ -254,6 +301,7 @@ data class CompassBackup(
     val rmpLocations: List<RmpUserDataBackup> = emptyList(),
     val visits: List<VisitBackup> = emptyList(),
     val tasks: List<TaskBackup> = emptyList(),
+    val reminders: List<StreetReminderBackup> = emptyList(),
     val customResources: List<Resource> = emptyList(),
     val customRmpLocations: List<RmpLocation> = emptyList()
 )
@@ -265,6 +313,7 @@ data class ImportPreview(
     val notesCount: Int,
     val visitCount: Int,
     val taskCount: Int,
+    val reminderCount: Int = 0,
     val customPlacesCount: Int,
     val rawBackup: CompassBackup
 )
@@ -274,6 +323,7 @@ data class ImportResult(
     val notesUpdated: Int,
     val visitsRestored: Int,
     val tasksRestored: Int,
+    val remindersRestored: Int = 0,
     val customPlacesRestored: Int
 )
 
@@ -284,16 +334,17 @@ data class BackupEntitySelection(
     val includeNotes: Boolean = true,
     val includeVisits: Boolean = true,
     val includeTasks: Boolean = true,
+    val includeReminders: Boolean = true,
     val includeCustomPlaces: Boolean = true
 ) {
     val noneSelected: Boolean
-        get() = !includeFavorites && !includeNotes && !includeVisits && !includeTasks && !includeCustomPlaces
+        get() = !includeFavorites && !includeNotes && !includeVisits && !includeTasks && !includeReminders && !includeCustomPlaces
 
     val allSelected: Boolean
-        get() = includeFavorites && includeNotes && includeVisits && includeTasks && includeCustomPlaces
+        get() = includeFavorites && includeNotes && includeVisits && includeTasks && includeReminders && includeCustomPlaces
 
     val countSelected: Int
-        get() = listOf(includeFavorites, includeNotes, includeVisits, includeTasks, includeCustomPlaces).count { it }
+        get() = listOf(includeFavorites, includeNotes, includeVisits, includeTasks, includeReminders, includeCustomPlaces).count { it }
 }
 
 // --- Photo Cache Manager Models (Chunk 5) ---
@@ -752,4 +803,302 @@ object ResourceRelevance {
         return resources.sortedByDescending { scoreResource(it, profile).score }
     }
 }
+
+// --- Reminders & Street Alerts Subsystem (Chunk 6) ---
+
+enum class AlertUrgency {
+    CRITICAL, // < 30 mins to closing or urgent lottery deadline
+    WARNING,  // 30 - 60 mins to closing
+    INFO      // Upcoming opening / daily briefing / weather
+}
+
+data class ActiveStreetAlert(
+    val id: String,
+    val title: String,
+    val subtitle: String = "",
+    val message: String = "",
+    val category: String = "meal", // meal | food | shelter | hygiene | health | weather | task
+    val urgency: AlertUrgency = AlertUrgency.WARNING,
+    val severity: String = "warning", // info | warning | critical
+    val icon: String = "⏰",
+    val cutoffTime: String? = null,
+    val deadlineTimeText: String = "", // e.g. "Closes at 1:30 PM (in 25 mins)"
+    val minutesRemaining: Int = 30,
+    val locationName: String = "",
+    val resourceName: String? = null,
+    val neighborhood: String = "",
+    val resourceId: Int? = null,
+    val actionLabel: String = "View Details",
+    val isReminderSet: Boolean = false
+)
+
+data class MorningBriefingData(
+    val headline: String = "",
+    val dateHeadline: String = "",
+    val weatherSummary: String = "",
+    val streetWeatherNotice: String = "",
+    val openMealsCount: Int = 0,
+    val pendingTasksCount: Int = 0,
+    val openKeyServices: List<Resource> = emptyList(),
+    val urgentTasks: List<Task> = emptyList(),
+    val topMealRecommendation: Resource? = null,
+    val topShelterNotice: String = "",
+    val isColdWeatherActivated: Boolean = false
+)
+
+object StreetAlertEngine {
+
+    // Well-known critical daily SF meal and intake cutoff rules
+    private val KNOWN_CUTOFFS = listOf(
+        StreetCutoffRule("St. Anthony's Free Lunch", "food", 10, 0, 13, 30, "Tenderloin", "Free daily sit-down lunch line cutoff at 1:30 PM (121 Golden Gate Ave)"),
+        StreetCutoffRule("Glide Memorial Lunch", "food", 12, 0, 13, 0, "Tenderloin", "Daily free lunch meal service closes at 1:00 PM (330 Ellis St)"),
+        StreetCutoffRule("Glide Memorial Dinner", "food", 16, 0, 17, 30, "Tenderloin", "Daily free dinner service closes at 5:30 PM (330 Ellis St)"),
+        StreetCutoffRule("Martin de Porres Lunch", "food", 12, 0, 14, 0, "Potrero Hill", "Free hospitality soup kitchen lunch closes at 2:00 PM (225 Potrero Ave)"),
+        StreetCutoffRule("City Hope Cafe Dinner", "food", 18, 0, 21, 30, "Tenderloin", "Free evening cafe dinner & safe community room closes at 9:30 PM"),
+        StreetCutoffRule("MSC South Drop-In Triage", "shelter", 8, 0, 19, 0, "SoMa", "Multi-Service Center South evening intake lottery cutoff at 7:00 PM (525 5th St)"),
+        StreetCutoffRule("NextDoor Shelter Intake", "shelter", 9, 0, 16, 0, "Tenderloin", "EPIC coordinated entry assessment intake closes at 4:00 PM (1001 Polk St)"),
+        StreetCutoffRule("Larkin Street Youth Drop-In", "shelter", 9, 0, 17, 0, "Tenderloin", "Youth & TAY (ages 12-24) drop-in services & food intake cutoff at 5:00 PM"),
+        StreetCutoffRule("A Woman's Place Drop-In", "shelter", 8, 0, 18, 0, "Mission", "Drop-in support & overnight intake triage closes at 6:00 PM (1049 Howard St)"),
+        StreetCutoffRule("LavaMaeX Mobile Showers", "hygiene", 9, 0, 13, 30, "Civic Center", "Mobile shower trailer registration cutoff at 1:30 PM"),
+        StreetCutoffRule("Mission Resource Center Showers", "hygiene", 7, 0, 16, 0, "Mission", "Drop-in shower list closes at 4:00 PM (165 Capp St)"),
+        StreetCutoffRule("Tom Waddell Urban Health Triage", "health", 8, 30, 16, 30, "Civic Center", "Same-day urgent street health walk-in triage closes at 4:30 PM (230 Golden Gate Ave)")
+    )
+
+    data class StreetCutoffRule(
+        val resourceName: String,
+        val category: String,
+        val startHour: Int,
+        val startMinute: Int,
+        val endHour: Int,
+        val endMinute: Int,
+        val neighborhood: String,
+        val description: String
+    )
+
+    fun evaluateActiveAlerts(
+        allResources: List<Resource>,
+        allReminders: List<StreetReminder> = emptyList(),
+        allTasks: List<Task> = emptyList(),
+        alertsMealCutoffsEnabled: Boolean = true,
+        leadMinutes: Int = 30,
+        alertsWeatherShelterEnabled: Boolean = true
+    ): List<ActiveStreetAlert> {
+        return calculateLiveStreetAlerts(
+            resources = allResources,
+            existingReminders = allReminders,
+            tasks = allTasks,
+            alertsMealCutoffsEnabled = alertsMealCutoffsEnabled,
+            leadMinutes = leadMinutes,
+            alertsWeatherShelterEnabled = alertsWeatherShelterEnabled
+        )
+    }
+
+    fun calculateLiveStreetAlerts(
+        resources: List<Resource>,
+        existingReminders: List<StreetReminder> = emptyList(),
+        tasks: List<Task> = emptyList(),
+        alertsMealCutoffsEnabled: Boolean = true,
+        leadMinutes: Int = 30,
+        alertsWeatherShelterEnabled: Boolean = true,
+        currentHour: Int? = null,
+        currentMinute: Int? = null,
+        currentDayOfWeek: Int? = null
+    ): List<ActiveStreetAlert> {
+        val calendar = java.util.Calendar.getInstance()
+        val hour = currentHour ?: calendar.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = currentMinute ?: calendar.get(java.util.Calendar.MINUTE)
+        val dayOfWeek = currentDayOfWeek ?: calendar.get(java.util.Calendar.DAY_OF_WEEK)
+        val dayIndex = dayOfWeek - 1 // 0 (Sun) .. 6 (Sat)
+        val currentTotalMinutes = hour * 60 + minute
+
+        val alerts = mutableListOf<ActiveStreetAlert>()
+
+        if (alertsMealCutoffsEnabled) {
+            // 1. Evaluate known time-sensitive civic rules
+            for (rule in KNOWN_CUTOFFS) {
+                val endTotalMinutes = rule.endHour * 60 + rule.endMinute
+                val minutesUntilClose = endTotalMinutes - currentTotalMinutes
+
+                // If within max(leadMinutes + 30, 90) minutes of closing
+                if (minutesUntilClose in 1..(leadMinutes + 45)) {
+                    val matchedRes = resources.find { it.name.contains(rule.resourceName, ignoreCase = true) || rule.resourceName.contains(it.name, ignoreCase = true) }
+                    val urgency = if (minutesUntilClose <= 30) AlertUrgency.CRITICAL else AlertUrgency.WARNING
+                    val severity = if (minutesUntilClose <= 30) "critical" else "warning"
+                    val formattedCloseTime = formatHourMinute(rule.endHour, rule.endMinute)
+                    val isReminderSet = existingReminders.any { it.enabled && (it.resourceId == matchedRes?.id || it.title.contains(rule.resourceName, ignoreCase = true)) }
+
+                    alerts.add(
+                        ActiveStreetAlert(
+                            id = "cutoff_${rule.resourceName.hashCode()}",
+                            title = "${if (urgency == AlertUrgency.CRITICAL) "🚨 Closing Soon:" else "⏰ Upcoming Cutoff:"} ${rule.resourceName}",
+                            subtitle = rule.description,
+                            message = "${rule.description} Closes at $formattedCloseTime ($minutesUntilClose min remaining).",
+                            category = rule.category,
+                            urgency = urgency,
+                            severity = severity,
+                            icon = if (rule.category == "food") "🍱" else if (rule.category == "shelter") "🏠" else "⏰",
+                            cutoffTime = formattedCloseTime,
+                            deadlineTimeText = "Closes at $formattedCloseTime ($minutesUntilClose mins left)",
+                            minutesRemaining = minutesUntilClose,
+                            locationName = rule.resourceName,
+                            resourceName = rule.resourceName,
+                            neighborhood = rule.neighborhood,
+                            resourceId = matchedRes?.id,
+                            actionLabel = "View Resource",
+                            isReminderSet = isReminderSet
+                        )
+                    )
+                }
+            }
+
+            // 2. Evaluate database resources dynamic closing times
+            for (res in resources) {
+                if (res.status != "active" || res.hours.isEmpty()) continue
+                // Avoid duplicate alerts already covered by known cutoffs
+                if (alerts.any { it.resourceId == res.id || it.locationName.equals(res.name, ignoreCase = true) }) continue
+
+                for (hb in res.hours) {
+                    if (hb.day == dayIndex) {
+                        val openTotal = parseTimeToMinutes(hb.open)
+                        val closeTotal = parseTimeToMinutes(hb.close)
+
+                        // If currently within operating hours and closing soon
+                        if (closeTotal > openTotal && currentTotalMinutes in openTotal until closeTotal) {
+                            val remaining = closeTotal - currentTotalMinutes
+                            if (remaining in 1..leadMinutes && (res.category == "food" || res.category == "shelter" || res.category == "hygiene" || res.category == "health")) {
+                                val urgency = if (remaining <= 30) AlertUrgency.CRITICAL else AlertUrgency.WARNING
+                                val severity = if (remaining <= 30) "critical" else "warning"
+                                val formattedClose = hb.close
+                                val isReminder = existingReminders.any { it.enabled && it.resourceId == res.id }
+
+                                alerts.add(
+                                    ActiveStreetAlert(
+                                        id = "res_close_${res.id}",
+                                        title = "${if (urgency == AlertUrgency.CRITICAL) "🚨 Closing Soon:" else "⏰ Cutoff:"} ${res.name}",
+                                        subtitle = if (res.summary.isNotBlank()) res.summary else "${res.category.replaceFirstChar { it.uppercase() }} in ${res.neighborhood}",
+                                        message = "Service line closing at $formattedClose ($remaining min left) at ${res.address.ifBlank { res.neighborhood }}.",
+                                        category = res.category,
+                                        urgency = urgency,
+                                        severity = severity,
+                                        icon = if (res.category == "food") "🍱" else if (res.category == "shelter") "🏠" else "⏰",
+                                        cutoffTime = formattedClose,
+                                        deadlineTimeText = "Closes at $formattedClose ($remaining mins left)",
+                                        minutesRemaining = remaining,
+                                        locationName = res.name,
+                                        resourceName = res.name,
+                                        neighborhood = res.neighborhood,
+                                        resourceId = res.id,
+                                        actionLabel = "View Resource",
+                                        isReminderSet = isReminder
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Severe Weather / Cold Night Shelter Activation Status Notice
+        if (alertsWeatherShelterEnabled) {
+            val isWinterSeason = calendar.get(java.util.Calendar.MONTH) in listOf(java.util.Calendar.NOVEMBER, java.util.Calendar.DECEMBER, java.util.Calendar.JANUARY, java.util.Calendar.FEBRUARY, java.util.Calendar.MARCH)
+            if (isWinterSeason) {
+                alerts.add(
+                    ActiveStreetAlert(
+                        id = "weather_cold_shelter",
+                        title = "SF Cold Weather Protocol Active",
+                        subtitle = "Expanded overnight shelter beds and warming centers active across Tenderloin & SoMa.",
+                        message = "Emergency cold weather mats open overnight at NextDoor and MSC South.",
+                        category = "weather",
+                        urgency = AlertUrgency.INFO,
+                        severity = "info",
+                        icon = "❄️",
+                        cutoffTime = "Overnight",
+                        deadlineTimeText = "Overnight Intake Open",
+                        minutesRemaining = 180,
+                        locationName = "MSC South & NextDoor",
+                        resourceName = "MSC South & NextDoor",
+                        neighborhood = "Civic Center / SoMa",
+                        actionLabel = "Shelter Info"
+                    )
+                )
+            }
+        }
+
+        return alerts.sortedWith(compareBy({ it.urgency.ordinal }, { it.minutesRemaining }))
+    }
+
+    fun generateMorningBriefing(
+        allResources: List<Resource> = emptyList(),
+        allTasks: List<Task> = emptyList(),
+        anchorNeighborhood: String = "Tenderloin",
+        resources: List<Resource> = allResources,
+        tasks: List<Task> = allTasks,
+        preferredNeighborhood: String = anchorNeighborhood
+    ): MorningBriefingData {
+        val targetResources = if (allResources.isNotEmpty()) allResources else resources
+        val targetTasks = if (allTasks.isNotEmpty()) allTasks else tasks
+        val targetNeighborhood = if (anchorNeighborhood.isNotBlank()) anchorNeighborhood else preferredNeighborhood
+
+        val calendar = java.util.Calendar.getInstance()
+        val dayOfWeek = calendar.get(java.util.Calendar.DAY_OF_WEEK)
+        val dayIndex = dayOfWeek - 1
+        val dayNames = arrayOf("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+        val todayName = dayNames[dayOfWeek - 1]
+
+        val openMeals = targetResources.filter { res ->
+            res.category == "food" && res.status == "active" &&
+            (res.hours.isEmpty() || res.hours.any { it.day == dayIndex })
+        }
+
+        val pendingTasks = targetTasks.filter { !it.done }
+
+        // Find best meal recommendation in user's anchor neighborhood
+        val topMeal = openMeals.find {
+            it.neighborhood.equals(targetNeighborhood, ignoreCase = true) &&
+            (it.name.contains("St. Anthony", ignoreCase = true) || it.name.contains("Glide", ignoreCase = true) || it.favorite)
+        } ?: openMeals.firstOrNull()
+
+        val isWinter = calendar.get(java.util.Calendar.MONTH) in listOf(java.util.Calendar.NOVEMBER, java.util.Calendar.DECEMBER, java.util.Calendar.JANUARY, java.util.Calendar.FEBRUARY, java.util.Calendar.MARCH)
+
+        val keyServices = targetResources.filter {
+            (it.category == "food" || it.category == "shelter" || it.category == "hygiene") &&
+            it.status == "active" && (it.favorite || it.neighborhood.equals(targetNeighborhood, ignoreCase = true))
+        }.take(6)
+
+        return MorningBriefingData(
+            headline = "$todayName Digest: ${openMeals.size} meal sites open",
+            dateHeadline = "$todayName in San Francisco",
+            weatherSummary = "Mild SF bay breeze • 61°F • Morning fog clearing to afternoon sun",
+            streetWeatherNotice = "Morning fog clearing to mild 62°F. Afternoon west winds 14 mph.",
+            openMealsCount = openMeals.size,
+            pendingTasksCount = pendingTasks.size,
+            openKeyServices = if (keyServices.isNotEmpty()) keyServices else openMeals.take(4),
+            urgentTasks = pendingTasks,
+            topMealRecommendation = topMeal,
+            topShelterNotice = if (isWinter) "Cold weather shelter expansion active across SoMa/Tenderloin" else "Standard shelter lotteries open at 4:00 PM (NextDoor) & 7:00 PM (MSC South)",
+            isColdWeatherActivated = isWinter
+        )
+    }
+
+    private fun parseTimeToMinutes(timeStr: String): Int {
+        if (timeStr.isBlank()) return 0
+        val parts = timeStr.split(":")
+        val h = parts.getOrNull(0)?.trim()?.toIntOrNull() ?: 0
+        val m = parts.getOrNull(1)?.trim()?.toIntOrNull() ?: 0
+        return h * 60 + m
+    }
+
+    private fun formatHourMinute(hour: Int, minute: Int): String {
+        val ampm = if (hour >= 12) "PM" else "AM"
+        val displayHour = when {
+            hour == 0 -> 12
+            hour > 12 -> hour - 12
+            else -> hour
+        }
+        val minStr = if (minute < 10) "0$minute" else "$minute"
+        return "$displayHour:$minStr $ampm"
+    }
+}
+
 

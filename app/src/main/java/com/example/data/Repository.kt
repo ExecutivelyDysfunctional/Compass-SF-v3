@@ -22,6 +22,7 @@ class CompassRepository(private val dao: ResourceDao) {
     val allPlansFlow: Flow<List<Plan>> = dao.getAllPlansFlow()
     val allRmpLocationsFlow: Flow<List<RmpLocation>> = dao.getAllRmpLocationsFlow()
     val allCapturesFlow: Flow<List<Capture>> = dao.getAllCapturesFlow()
+    val allRemindersFlow: Flow<List<StreetReminder>> = dao.getAllRemindersFlow()
 
     suspend fun checkAndSeedDatabase() = withContext(Dispatchers.IO) {
         val existingResources = dao.getAllResources()
@@ -150,11 +151,21 @@ class CompassRepository(private val dao: ResourceDao) {
 
     suspend fun getAllVisits(): List<Visit> = dao.getAllVisits()
 
+    // Street Reminders (Chunk 6)
+    suspend fun getAllReminders(): List<StreetReminder> = dao.getAllReminders()
+    suspend fun getReminderById(id: Int): StreetReminder? = dao.getReminderById(id)
+    suspend fun insertReminder(reminder: StreetReminder): Long = dao.insertReminder(reminder)
+    suspend fun updateReminder(reminder: StreetReminder) = dao.updateReminder(reminder)
+    suspend fun deleteReminder(reminder: StreetReminder) = dao.deleteReminder(reminder)
+    suspend fun deleteReminderById(id: Int) = dao.deleteReminderById(id)
+    suspend fun getRemindersForResource(resourceId: Int): List<StreetReminder> = dao.getRemindersForResource(resourceId)
+
     suspend fun createBackupData(selection: BackupEntitySelection = BackupEntitySelection()): CompassBackup = withContext(Dispatchers.IO) {
         val allRes = dao.getAllResources()
         val allRmp = dao.getAllRmpLocations()
         val allVisits = dao.getAllVisits()
         val allTasks = dao.getAllTasks()
+        val allReminders = dao.getAllReminders()
 
         val resMap = allRes.associateBy { it.id }
 
@@ -234,6 +245,28 @@ class CompassRepository(private val dao: ResourceDao) {
             emptyList()
         }
 
+        // Reminders (Chunk 6)
+        val reminderBackups = if (selection.includeReminders) {
+            allReminders.map { r ->
+                val linkedRes = r.resourceId?.let { resMap[it] }
+                StreetReminderBackup(
+                    id = r.id,
+                    title = r.title,
+                    description = r.description,
+                    reminderType = r.reminderType,
+                    resourceId = r.resourceId,
+                    resourceName = linkedRes?.name ?: r.resourceName,
+                    targetTimeText = r.targetTimeText,
+                    leadMinutes = r.leadMinutes,
+                    triggerHour = r.triggerHour,
+                    triggerMinute = r.triggerMinute,
+                    enabled = r.enabled
+                )
+            }
+        } else {
+            emptyList()
+        }
+
         // Custom places added manually or via AI
         val customRes = if (selection.includeCustomPlaces) allRes.filter { it.createdVia != "seed" } else emptyList()
         val customRmp = if (selection.includeCustomPlaces) allRmp.filter { it.createdVia != "seed" } else emptyList()
@@ -246,19 +279,21 @@ class CompassRepository(private val dao: ResourceDao) {
         CompassBackup(
             metadata = BackupMetadata(
                 app = "Compass SF",
-                version = 1,
+                version = 2,
                 exportedAt = now,
                 exportedDateFormatted = sdf.format(Date(now)),
                 totalFavorites = totalFavs,
                 totalNotes = totalNotes,
                 totalVisits = visitBackups.size,
                 totalTasks = taskBackups.size,
+                totalReminders = reminderBackups.size,
                 totalCustomPlaces = customRes.size + customRmp.size
             ),
             resources = userResources,
             rmpLocations = userRmp,
             visits = visitBackups,
             tasks = taskBackups,
+            reminders = reminderBackups,
             customResources = customRes,
             customRmpLocations = customRmp
         )
@@ -292,6 +327,7 @@ class CompassRepository(private val dao: ResourceDao) {
             notesCount = notesCount,
             visitCount = backup.visits.size,
             taskCount = backup.tasks.size,
+            reminderCount = backup.reminders.size,
             customPlacesCount = backup.customResources.size + backup.customRmpLocations.size,
             rawBackup = backup
         )
@@ -305,6 +341,7 @@ class CompassRepository(private val dao: ResourceDao) {
         var notesUpdated = 0
         var visitsRestored = 0
         var tasksRestored = 0
+        var remindersRestored = 0
         var customPlacesRestored = 0
 
         var currentResources = dao.getAllResources()
@@ -487,11 +524,48 @@ class CompassRepository(private val dao: ResourceDao) {
             }
         }
 
+        // 7. Restore Reminders (if selected)
+        if (selection.includeReminders) {
+            val currentReminders = dao.getAllReminders()
+            val latestResources = dao.getAllResources()
+            for (r in backup.reminders) {
+                val isDuplicate = currentReminders.any { existing ->
+                    existing.title.trim().equals(r.title.trim(), ignoreCase = true) &&
+                    existing.triggerHour == r.triggerHour &&
+                    existing.triggerMinute == r.triggerMinute
+                }
+                if (!isDuplicate) {
+                    val matchedResId = if (!r.resourceName.isNullOrBlank()) {
+                        latestResources.find { it.name.trim().equals(r.resourceName.trim(), ignoreCase = true) }?.id ?: r.resourceId
+                    } else {
+                        r.resourceId
+                    }
+                    dao.insertReminder(
+                        StreetReminder(
+                            id = 0,
+                            title = r.title,
+                            description = r.description,
+                            reminderType = r.reminderType,
+                            resourceId = matchedResId,
+                            resourceName = r.resourceName,
+                            targetTimeText = r.targetTimeText,
+                            leadMinutes = r.leadMinutes,
+                            triggerHour = r.triggerHour,
+                            triggerMinute = r.triggerMinute,
+                            enabled = r.enabled
+                        )
+                    )
+                    remindersRestored++
+                }
+            }
+        }
+
         ImportResult(
             favoritesUpdated = favsUpdated,
             notesUpdated = notesUpdated,
             visitsRestored = visitsRestored,
             tasksRestored = tasksRestored,
+            remindersRestored = remindersRestored,
             customPlacesRestored = customPlacesRestored
         )
     }

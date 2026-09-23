@@ -561,6 +561,17 @@ fun NowScreen(
             RelevanceProfileBanner(viewModel = viewModel)
         }
 
+        item {
+            StreetAlertsBanner(
+                viewModel = viewModel,
+                onNavigateToFind = onNavigateToFind
+            )
+        }
+
+        item {
+            MorningBriefingCard(viewModel = viewModel)
+        }
+
         // Quick Category Row & Map Banner
         item {
             Row(
@@ -7262,6 +7273,11 @@ fun SettingsScreen(
             }
         }
 
+        // Section: Reminders & Street Alerts
+        item {
+            StreetRemindersSettingsSection(viewModel = viewModel)
+        }
+
         item {
             Spacer(modifier = Modifier.height(100.dp))
         }
@@ -7728,6 +7744,7 @@ fun DetailScreen(
 
     val visits by viewModel.getVisitsFlow(resourceId).collectAsState(initial = emptyList())
     var showVisitDialog by remember { mutableStateOf(false) }
+    var showReminderDialog by remember { mutableStateOf(false) }
 
     LazyColumn(
         modifier = Modifier
@@ -7746,6 +7763,9 @@ fun DetailScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "back", tint = Mist100)
                 }
                 Row {
+                    IconButton(onClick = { showReminderDialog = true }) {
+                        Icon(Icons.Default.NotificationsActive, "Set alert reminder", tint = Beacon400)
+                    }
                     IconButton(onClick = { shareResource(context, res) }) {
                         Icon(Icons.Default.Share, "share", tint = Beacon400)
                     }
@@ -8125,6 +8145,14 @@ fun DetailScreen(
                     Text("Cancel", color = Mist400)
                 }
             }
+        )
+    }
+
+    if (showReminderDialog) {
+        AddStreetReminderDialog(
+            viewModel = viewModel,
+            onDismiss = { showReminderDialog = false },
+            prefillResource = res
         )
     }
 }

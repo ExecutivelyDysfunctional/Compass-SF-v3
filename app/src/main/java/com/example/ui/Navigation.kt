@@ -51,6 +51,7 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val allPlans: StateFlow<List<Plan>>
     val allRmpLocations: StateFlow<List<RmpLocation>>
     val allCaptures: StateFlow<List<Capture>>
+    val allReminders: StateFlow<List<StreetReminder>>
 
     // --- Add Screen UI State ---
     val addRawText = mutableStateOf("")
@@ -149,6 +150,15 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val exportSelection = mutableStateOf(BackupEntitySelection())
     val importSelection = mutableStateOf(BackupEntitySelection())
 
+    // --- Reminders & Street Alerts UI State (Chunk 6) ---
+    val alertsMealCutoffsEnabled = mutableStateOf(true)
+    val alertsLeadMinutes = mutableStateOf(30)
+    val alertsMorningBriefingEnabled = mutableStateOf(true)
+    val alertsMorningBriefingTime = mutableStateOf("07:30")
+    val alertsWeatherShelterEnabled = mutableStateOf(true)
+    val alertsSoundVibrationEnabled = mutableStateOf(true)
+    val reminderFilterCategory = mutableStateOf<String?>(null)
+
     val hasActivePresets: Boolean
         get() = demographicPresets.value.isNotEmpty() || accessibilityMobilityMode.value || dietaryPresets.value.isNotEmpty() || excludeNonLocationResources.value
 
@@ -181,6 +191,14 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
 
         allCaptures = repository.allCapturesFlow
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        allReminders = repository.allRemindersFlow
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+        // Notification channels init (Chunk 6)
+        try {
+            NotificationHelper.createNotificationChannels(application)
+        } catch (_: Exception) {}
 
         // Check seeding and saved preferences on start
         viewModelScope.launch {
@@ -297,6 +315,26 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                 if (raw.isNotBlank()) {
                     recentSearches.value = raw.split("|||").map { it.trim() }.filter { it.isNotEmpty() }
                 }
+            }
+
+            // Load Reminders & Alerts Preferences (Chunk 6)
+            repository.getSetting("alerts_meal_cutoffs")?.let {
+                alertsMealCutoffsEnabled.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("alerts_lead_minutes")?.let {
+                alertsLeadMinutes.value = it.toIntOrNull() ?: 30
+            }
+            repository.getSetting("alerts_morning_briefing")?.let {
+                alertsMorningBriefingEnabled.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("alerts_morning_briefing_time")?.let {
+                alertsMorningBriefingTime.value = it
+            }
+            repository.getSetting("alerts_weather_shelter")?.let {
+                alertsWeatherShelterEnabled.value = it.toBooleanStrictOrNull() ?: true
+            }
+            repository.getSetting("alerts_sound_vibration")?.let {
+                alertsSoundVibrationEnabled.value = it.toBooleanStrictOrNull() ?: true
             }
 
             val locType = repository.getSetting("location_type") ?: "none"
@@ -1292,5 +1330,189 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     fun dismissReseedResult() {
         lastReseedResult.value = null
         reseedErrorMessage.value = null
+    }
+
+    // --- Street Reminders & Alerts Management (Chunk 6) ---
+    fun addReminder(
+        title: String,
+        description: String = "",
+        reminderType: String = "meal",
+        resourceId: Int? = null,
+        resourceName: String? = null,
+        targetTimeText: String = "",
+        leadMinutes: Int = 30,
+        triggerHour: Int = 11,
+        triggerMinute: Int = 0,
+        daysOfWeek: List<Int> = listOf(1, 2, 3, 4, 5, 6, 7),
+        onComplete: (() -> Unit)? = null
+    ) {
+        viewModelScope.launch {
+            val reminder = StreetReminder(
+                title = title.trim(),
+                description = description.trim(),
+                reminderType = reminderType,
+                resourceId = resourceId,
+                resourceName = resourceName,
+                targetTimeText = targetTimeText,
+                leadMinutes = leadMinutes,
+                triggerHour = triggerHour,
+                triggerMinute = triggerMinute,
+                daysOfWeek = daysOfWeek,
+                enabled = true
+            )
+            repository.insertReminder(reminder)
+            onComplete?.invoke()
+        }
+    }
+
+    fun toggleReminder(reminder: StreetReminder) {
+        viewModelScope.launch {
+            repository.updateReminder(reminder.copy(enabled = !reminder.enabled))
+        }
+    }
+
+    fun updateReminder(reminder: StreetReminder) {
+        viewModelScope.launch {
+            repository.updateReminder(reminder)
+        }
+    }
+
+    fun deleteReminder(reminder: StreetReminder) {
+        viewModelScope.launch {
+            repository.deleteReminder(reminder)
+        }
+    }
+
+    fun setAlertsMealCutoffs(enabled: Boolean) {
+        alertsMealCutoffsEnabled.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("alerts_meal_cutoffs", enabled.toString())
+        }
+    }
+
+    fun setAlertsLeadMinutes(minutes: Int) {
+        alertsLeadMinutes.value = minutes
+        viewModelScope.launch {
+            repository.saveSetting("alerts_lead_minutes", minutes.toString())
+        }
+    }
+
+    fun setAlertsMorningBriefing(enabled: Boolean) {
+        alertsMorningBriefingEnabled.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("alerts_morning_briefing", enabled.toString())
+        }
+    }
+
+    fun setAlertsMorningBriefingTime(time: String) {
+        alertsMorningBriefingTime.value = time
+        viewModelScope.launch {
+            repository.saveSetting("alerts_morning_briefing_time", time)
+        }
+    }
+
+    fun setAlertsWeatherShelter(enabled: Boolean) {
+        alertsWeatherShelterEnabled.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("alerts_weather_shelter", enabled.toString())
+        }
+    }
+
+    fun setAlertsSoundVibration(enabled: Boolean) {
+        alertsSoundVibrationEnabled.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("alerts_sound_vibration", enabled.toString())
+        }
+    }
+
+    fun testSendMealAlert(context: Context, resourceName: String = "St. Anthony Dining Room", cutoffText: String = "Lunch service finishes at 1:30 PM") {
+        NotificationHelper.sendNotification(
+            context = context,
+            channelId = NotificationHelper.CHANNEL_MEALS,
+            notificationId = (System.currentTimeMillis() % 10000).toInt(),
+            title = "Meal Closing Soon: $resourceName",
+            message = cutoffText,
+            vibrate = alertsSoundVibrationEnabled.value
+        )
+    }
+
+    fun testSendMorningBriefing(context: Context) {
+        val briefing = StreetAlertEngine.generateMorningBriefing(
+            allResources = allResources.value,
+            allTasks = allTasks.value,
+            anchorNeighborhood = defaultNeighborhoodAnchorId.value
+        )
+        NotificationHelper.sendNotification(
+            context = context,
+            channelId = NotificationHelper.CHANNEL_BRIEFING,
+            notificationId = 1001,
+            title = "Morning Street Briefing",
+            message = briefing.headline,
+            bigText = "${briefing.headline}\n\nKey Services Open Today:\n" +
+                briefing.openKeyServices.take(3).joinToString("\n") { "• ${it.name} (${it.category}): ${it.hoursText}" } +
+                if (briefing.urgentTasks.isNotEmpty()) "\n\nPending Tasks:\n" + briefing.urgentTasks.take(2).joinToString("\n") { "• ${it.title}" } else "",
+            vibrate = alertsSoundVibrationEnabled.value
+        )
+    }
+
+    fun testSendTaskReminder(context: Context, taskTitle: String = "Check Mail at Resource Center") {
+        NotificationHelper.sendNotification(
+            context = context,
+            channelId = NotificationHelper.CHANNEL_TASKS,
+            notificationId = (System.currentTimeMillis() % 10000).toInt(),
+            title = "Task Reminder",
+            message = taskTitle,
+            vibrate = alertsSoundVibrationEnabled.value
+        )
+    }
+
+    fun seedDefaultStreetReminders() {
+        viewModelScope.launch {
+            val defaults = listOf(
+                StreetReminder(
+                    title = "St. Anthony's Lunch Closes",
+                    description = "Dining room meal line finishes at 1:30 PM",
+                    reminderType = "meal",
+                    resourceName = "St. Anthony Dining Room",
+                    targetTimeText = "1:30 PM",
+                    leadMinutes = 30,
+                    triggerHour = 13,
+                    triggerMinute = 0
+                ),
+                StreetReminder(
+                    title = "Glide Daily Lunch Service",
+                    description = "Daily lunch service ends at 1:30 PM",
+                    reminderType = "meal",
+                    resourceName = "Glide Memorial Church",
+                    targetTimeText = "1:30 PM",
+                    leadMinutes = 30,
+                    triggerHour = 13,
+                    triggerMinute = 0
+                ),
+                StreetReminder(
+                    title = "Tom Waddell Urgent Care Cutoff",
+                    description = "Afternoon drop-in intake closes around 4:00 PM",
+                    reminderType = "clinic",
+                    resourceName = "Tom Waddell Urban Health",
+                    targetTimeText = "4:00 PM",
+                    leadMinutes = 45,
+                    triggerHour = 15,
+                    triggerMinute = 15
+                ),
+                StreetReminder(
+                    title = "Sanctuary Shelter Intake",
+                    description = "Evening intake assessment line opens at 5:00 PM",
+                    reminderType = "shelter",
+                    resourceName = "Sanctuary Shelter (ECS)",
+                    targetTimeText = "5:00 PM",
+                    leadMinutes = 45,
+                    triggerHour = 16,
+                    triggerMinute = 15
+                )
+            )
+            for (r in defaults) {
+                repository.insertReminder(r)
+            }
+        }
     }
 }

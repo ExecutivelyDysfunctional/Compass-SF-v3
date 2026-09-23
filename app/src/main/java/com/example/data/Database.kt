@@ -111,6 +111,37 @@ interface ResourceDao {
 
     @Update
     suspend fun updateCapture(capture: Capture): Int
+
+    // Street Reminders (Chunk 6)
+    @Query("SELECT * FROM street_reminders ORDER BY triggerHour ASC, triggerMinute ASC, id DESC")
+    fun getAllRemindersFlow(): Flow<List<StreetReminder>>
+
+    @Query("SELECT * FROM street_reminders ORDER BY triggerHour ASC, triggerMinute ASC")
+    suspend fun getAllReminders(): List<StreetReminder>
+
+    @Query("SELECT * FROM street_reminders WHERE id = :id")
+    suspend fun getReminderById(id: Int): StreetReminder?
+
+    @Query("SELECT * FROM street_reminders WHERE resourceId = :resourceId")
+    suspend fun getRemindersForResource(resourceId: Int): List<StreetReminder>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertReminder(reminder: StreetReminder): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertReminders(reminders: List<StreetReminder>): List<Long>
+
+    @Update
+    suspend fun updateReminder(reminder: StreetReminder): Int
+
+    @Delete
+    suspend fun deleteReminder(reminder: StreetReminder): Int
+
+    @Query("DELETE FROM street_reminders WHERE id = :id")
+    suspend fun deleteReminderById(id: Int): Int
+
+    @Query("SELECT COUNT(*) FROM street_reminders")
+    suspend fun getReminderCount(): Int
 }
 
 @Database(
@@ -121,9 +152,10 @@ interface ResourceDao {
         Plan::class,
         RmpLocation::class,
         AppSetting::class,
-        Capture::class
+        Capture::class,
+        StreetReminder::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
