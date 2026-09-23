@@ -85,11 +85,13 @@ class MainActivity : ComponentActivity() {
 
                 val isMapScreen = currentRoute == Screen.Map.route || currentRoute?.startsWith("map") == true
 
+                val isSettingsSubScreen = currentRoute?.startsWith("settings/") == true
+
                 val isSubScreen = currentRoute in listOf(
                     Screen.Add.route,
                     Screen.Info.route,
                     Screen.Settings.route
-                ) || (isMapScreen && !configuredNavRoutes.contains(Screen.Map.route))
+                ) || isSettingsSubScreen || (isMapScreen && !configuredNavRoutes.contains(Screen.Map.route))
 
                 val isDetailScreen = currentRoute?.startsWith("detail") == true
 
@@ -101,11 +103,19 @@ class MainActivity : ComponentActivity() {
                             TopAppBar(
                                 title = {
                                     if (isSubScreen) {
-                                        val title = when (currentRoute) {
-                                            Screen.Add.route -> "Add New Resource"
-                                            Screen.Info.route -> "City Info & Hotlines"
-                                            Screen.Settings.route -> "Settings & Preferences"
-                                            else -> "Compass SF"
+                                        val title = when {
+                                            currentRoute == Screen.Add.route -> "Add New Resource"
+                                            currentRoute == Screen.Info.route -> "City Info & Hotlines"
+                                            currentRoute == Screen.Settings.route -> "Settings & Preferences"
+                                            currentRoute == "settings/appearance" -> "Appearance & Visuals"
+                                            currentRoute == "settings/workspace" -> "Navigation & Workspace"
+                                            currentRoute == "settings/personalization" -> "Personalization & Profile"
+                                            currentRoute == "settings/search" -> "Search & Resource Filters"
+                                            currentRoute == "settings/map" -> "Map & Cartography"
+                                            currentRoute == "settings/ai" -> "AI Navigator"
+                                            currentRoute == "settings/data" -> "Data, Privacy & Storage"
+                                            currentRoute == "settings/about" -> "About & Help"
+                                            else -> "Settings & Preferences"
                                         }
                                         Text(
                                             text = title,
@@ -452,7 +462,50 @@ class MainActivity : ComponentActivity() {
                             }
 
                             composable(Screen.Settings.route) {
-                                SettingsScreen(viewModel = viewModel)
+                                SettingsScreen(
+                                    viewModel = viewModel,
+                                    onNavigateToSubpage = { route ->
+                                        navController.navigate(route)
+                                    }
+                                )
+                            }
+
+                            composable("settings/appearance") {
+                                AppearanceSettingsPage(viewModel = viewModel)
+                            }
+
+                            composable("settings/workspace") {
+                                NavigationSettingsPage(viewModel = viewModel)
+                            }
+
+                            composable("settings/personalization") {
+                                ProfileSettingsPage(viewModel = viewModel)
+                            }
+
+                            composable("settings/search") {
+                                SearchSettingsPage(viewModel = viewModel)
+                            }
+
+                            composable("settings/map") {
+                                MapSettingsPage(viewModel = viewModel)
+                            }
+
+                            composable("settings/ai") {
+                                AiSettingsPage(viewModel = viewModel)
+                            }
+
+                            composable("settings/data") {
+                                StorageSettingsPage(
+                                    viewModel = viewModel,
+                                    resources = viewModel.allResources.collectAsState().value,
+                                    rmpLocations = viewModel.allRmpLocations.collectAsState().value,
+                                    visits = viewModel.allVisits.collectAsState().value,
+                                    tasks = viewModel.allTasks.collectAsState().value
+                                )
+                            }
+
+                            composable("settings/about") {
+                                AboutHelpSettingsPage(viewModel = viewModel)
                             }
 
                             composable(

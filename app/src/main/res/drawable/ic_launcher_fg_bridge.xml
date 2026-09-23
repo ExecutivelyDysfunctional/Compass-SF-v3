@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="512"
+    android:viewportHeight="512">
+    <!-- North Star -->
+    <path android:fillColor="#ffd27a" android:pathData="M256,78 C263,120 274,131 316,138 C274,145 263,156 256,198 C249,156 238,145 196,138 C238,131 249,120 256,78 Z"/>
+    <!-- Suspension cables -->
+    <path android:pathData="M70,330 L166,186 Q256,300 346,186 L442,330"
+        android:strokeColor="#ffc350" android:strokeWidth="15" android:strokeLineCap="round" android:strokeLineJoin="round" android:fillColor="#00000000"/>
+    <!-- Towers -->
+    <path android:fillColor="#ffc350" android:pathData="M152,176 h17 v182 h-17 Z M184,176 h17 v182 h-17 Z M150,216 h53 v14 h-53 Z M150,280 h53 v14 h-53 Z M311,176 h17 v182 h-17 Z M343,176 h17 v182 h-17 Z M309,216 h53 v14 h-53 Z M309,280 h53 v14 h-53 Z"/>
+    <!-- Deck -->
+    <path android:fillColor="#ffb020" android:pathData="M62,330 h388 v19 h-388 Z"/>
+    <!-- Fog bands -->
+    <path android:fillColor="#3a4761" android:pathData="M96,382 h200 v15 h-200 Z M316,382 h100 v15 h-100 Z M146,418 h220 v15 h-220 Z"/>
+</vector>

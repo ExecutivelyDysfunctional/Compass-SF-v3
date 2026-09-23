@@ -1,4 +1,5 @@
 package com.example.ui
+import com.example.data.AppIconManager
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 
@@ -3148,20 +3149,24 @@ enum class SettingsSubPage(
     val title: String,
     val subtitle: String,
     val icon: ImageVector,
-    val emoji: String
+    val emoji: String,
+    val route: String
 ) {
-    HUB("hub", "Settings Hub", "Select a category to customize options", Icons.Default.Settings, "⚙️"),
-    APPEARANCE("appearance", "Appearance & Visuals", "Themes, accent colors, text scale, map style & launcher icons", Icons.Default.Palette, "🎨"),
-    PROFILE("profile", "Navigator Profile & Presets", "Demographic filters, mobility mode, dietary rules & need boosts", Icons.Default.Person, "👤"),
-    NAVIGATION("navigation", "Navigation & Data Sources", "Startup screen, bottom bar, anchors & civic feeds", Icons.Default.Navigation, "🧭"),
-    AI("ai", "AI Navigator Assistant", "Guide persona tone, offline Gemini model & custom endpoint", Icons.Default.AutoAwesome, "🤖"),
-    PRIVACY("privacy", "Privacy & Ephemeral Search", "Zero-log incognito search & recent search log controls", Icons.Default.Security, "🕵️"),
-    STORAGE("storage", "Offline Storage & Backup", "Photo flyer cache, factory re-seed baseline & JSON exports", Icons.Default.Storage, "💾")
+    HUB("hub", "Settings Hub", "Select a category to customize options", Icons.Default.Settings, "⚙️", "settings"),
+    APPEARANCE("appearance", "Appearance & Visuals", "Themes, accent colors, text scale, map style & launcher icons", Icons.Default.Palette, "🎨", "settings/appearance"),
+    WORKSPACE("workspace", "Navigation & Workspace", "Startup screen, bottom bar tabs, anchors & workspace reset", Icons.Default.Navigation, "🧭", "settings/workspace"),
+    PERSONALIZATION("personalization", "Personalization & Profile", "Demographic filters, needs, dietary rules & mobility mode", Icons.Default.Person, "👤", "settings/personalization"),
+    SEARCH("search", "Search & Resource Filters", "Open-only defaults, physical address filters & incognito search", Icons.Default.Search, "🔍", "settings/search"),
+    MAP("map", "Map & Cartography", "Layer toggles, clustering density, reduced motion & anchors", Icons.Default.Map, "🗺️", "settings/map"),
+    AI("ai", "AI Navigator", "Guide persona tone, online/offline mode, API key & test", Icons.Default.AutoAwesome, "🤖", "settings/ai"),
+    DATA("data", "Data, Privacy & Storage", "Civic feeds, photo cache, JSON backup & factory re-seed", Icons.Default.Storage, "💾", "settings/data"),
+    ABOUT("about", "About & Help", "App version, data sources, crisis hotlines & offline guide", Icons.Default.Info, "ℹ️", "settings/about")
 }
 
 @Composable
 fun SettingsScreen(
-    viewModel: CompassViewModel
+    viewModel: CompassViewModel,
+    onNavigateToSubpage: ((String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -3172,8 +3177,8 @@ fun SettingsScreen(
 
     var activeSubPage by remember { mutableStateOf(SettingsSubPage.HUB) }
 
-    // Intercept back button on sub-pages
-    if (activeSubPage != SettingsSubPage.HUB) {
+    // Intercept back button on local sub-pages
+    if (onNavigateToSubpage == null && activeSubPage != SettingsSubPage.HUB) {
         BackHandler {
             activeSubPage = SettingsSubPage.HUB
         }
@@ -3238,8 +3243,7 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
-            // Top Header & Sub-page Navigation Breadcrumbs
-            if (activeSubPage != SettingsSubPage.HUB) {
+            if (onNavigateToSubpage == null && activeSubPage != SettingsSubPage.HUB) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3272,7 +3276,7 @@ fun SettingsScreen(
                         Text(activeSubPage.subtitle, fontSize = 11.sp, color = Mist400, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-            } else {
+            } else if (onNavigateToSubpage == null || activeSubPage == SettingsSubPage.HUB) {
                 // Top Welcome Banner for Settings Hub
                 Column(modifier = Modifier.padding(bottom = 16.dp)) {
                     Text(
@@ -3290,31 +3294,28 @@ fun SettingsScreen(
                 }
             }
 
-            // Sub-page View Switcher
-            when (activeSubPage) {
-                SettingsSubPage.HUB -> {
-                    SettingsHubContent(
-                        viewModel = viewModel,
-                        onSelectCategory = { activeSubPage = it }
-                    )
-                }
-                SettingsSubPage.APPEARANCE -> {
-                    AppearanceSettingsPage(viewModel = viewModel)
-                }
-                SettingsSubPage.PROFILE -> {
-                    ProfileSettingsPage(viewModel = viewModel)
-                }
-                SettingsSubPage.NAVIGATION -> {
-                    NavigationSettingsPage(viewModel = viewModel)
-                }
-                SettingsSubPage.AI -> {
-                    AiSettingsPage(viewModel = viewModel)
-                }
-                SettingsSubPage.PRIVACY -> {
-                    PrivacySettingsPage(viewModel = viewModel)
-                }
-                SettingsSubPage.STORAGE -> {
-                    StorageSettingsPage(
+            if (onNavigateToSubpage != null) {
+                SettingsHubContent(
+                    viewModel = viewModel,
+                    onSelectCategory = { page ->
+                        onNavigateToSubpage(page.route)
+                    }
+                )
+            } else {
+                when (activeSubPage) {
+                    SettingsSubPage.HUB -> {
+                        SettingsHubContent(
+                            viewModel = viewModel,
+                            onSelectCategory = { activeSubPage = it }
+                        )
+                    }
+                    SettingsSubPage.APPEARANCE -> AppearanceSettingsPage(viewModel = viewModel)
+                    SettingsSubPage.WORKSPACE -> NavigationSettingsPage(viewModel = viewModel)
+                    SettingsSubPage.PERSONALIZATION -> ProfileSettingsPage(viewModel = viewModel)
+                    SettingsSubPage.SEARCH -> SearchSettingsPage(viewModel = viewModel)
+                    SettingsSubPage.MAP -> MapSettingsPage(viewModel = viewModel)
+                    SettingsSubPage.AI -> AiSettingsPage(viewModel = viewModel)
+                    SettingsSubPage.DATA -> StorageSettingsPage(
                         viewModel = viewModel,
                         resources = resources,
                         rmpLocations = rmpLocations,
@@ -3326,6 +3327,7 @@ fun SettingsScreen(
                         onOpenPhotoAudit = { showPhotoCacheInspectionDialog = true },
                         onOpenReseedConfirm = { showReseedConfirmDialog = true }
                     )
+                    SettingsSubPage.ABOUT -> AboutHelpSettingsPage(viewModel = viewModel)
                 }
             }
         }
@@ -3451,33 +3453,43 @@ fun SettingsHubContent(
     val subPages = listOf(
         Triple(
             SettingsSubPage.APPEARANCE,
-            "${activeMode.displayName} • ${activeAccent.displayName} • ${activeFontScale.displayName}",
-            "Live preview card, color themes, font scaling, map vector style & app launcher branding"
+            "${activeMode.displayName} • ${activeAccent.displayName} • ${viewModel.currentAppIconKey.value.uppercase()}",
+            "Live preview card, color themes, font scaling & launcher icon switcher"
         ),
         Triple(
-            SettingsSubPage.PROFILE,
-            "${demographicPresets.size} Demographics • ${if (mobilityMode) "Mobility Mode On" else "Standard"} • ${dietaryPresets.size} Dietary",
-            "Demographic filters, mobility requirements, dietary rules & local priority boosts"
+            SettingsSubPage.WORKSPACE,
+            "Start: ${startupRoute.replaceFirstChar { it.uppercase() }} • Anchor: ${defaultAnchor.replaceFirstChar { it.uppercase() }}",
+            "Startup screen, bottom navigation bar active items & neighborhood anchor"
         ),
         Triple(
-            SettingsSubPage.NAVIGATION,
-            "Start: ${startupRoute.replaceFirstChar { it.uppercase() }} • Anchor: ${defaultAnchor.replaceFirstChar { it.uppercase() }} • ${if (hasDisabledSources) "Filtered" else "All Feeds Active"}",
-            "Startup screen, bottom navigation bar items, default neighborhood anchor & civic feeds"
+            SettingsSubPage.PERSONALIZATION,
+            "${demographicPresets.size} Presets • ${if (mobilityMode) "Mobility On" else "Standard"} • ${dietaryPresets.size} Dietary",
+            "Primary need priorities, demographic filters, dietary rules & mobility mode"
+        ),
+        Triple(
+            SettingsSubPage.SEARCH,
+            "Incognito: ${if (incognito) "ENABLED" else "Off"} • Physical Address Filters",
+            "Open-only search defaults, non-location helpline filters & query history"
+        ),
+        Triple(
+            SettingsSubPage.MAP,
+            "Transit, Neighborhoods & Landmarks Layers",
+            "Vector map overlays, marker clustering density & reduced motion"
         ),
         Triple(
             SettingsSubPage.AI,
             "${aiStyle.title} • ${if (aiOffline) "Offline Gemini" else "Online Gemini"}",
-            "Guide persona tone, offline local Gemini fallback, custom API key & endpoint test"
+            "Guide persona tone, online/offline Gemini mode, API key & server test"
         ),
         Triple(
-            SettingsSubPage.PRIVACY,
-            "Incognito: ${if (incognito) "ENABLED" else "Off"} • ${recents.size} Recent Queries",
-            "Zero-log ephemeral search mode & recent search query history controls"
+            SettingsSubPage.DATA,
+            "Photo Cache: ${(cacheBytes / 1024 / 1024)}MB • Feed Toggles & JSON Backup",
+            "Civic feed toggles, offline photo cache, factory re-seed & JSON export/import"
         ),
         Triple(
-            SettingsSubPage.STORAGE,
-            "Photo Cache: ${(cacheBytes / 1024 / 1024)}MB • JSON Backup & Import",
-            "Flyer photo offline cache audit, baseline database factory re-seed & JSON exports"
+            SettingsSubPage.ABOUT,
+            "Compass SF v3.0.0 • 100% Local Privacy",
+            "App version info, open data sources, local storage guarantee & emergency hotlines"
         )
     )
 
@@ -4200,6 +4212,14 @@ fun AiSettingsPage(
     viewModel: CompassViewModel
 ) {
     val aiStyle = viewModel.aiNavigatorStyle.value
+    val aiOffline = viewModel.aiOfflineOnly.value
+    val customKey = viewModel.aiCustomApiKey.value
+    val customEndpoint = viewModel.aiCustomEndpoint.value
+    val connectionStatus = viewModel.aiConnectionStatus.value
+    val isTesting = viewModel.isTestingAiConnection.value
+
+    var keyInput by remember(customKey) { mutableStateOf(customKey) }
+    var endpointInput by remember(customEndpoint) { mutableStateOf(customEndpoint) }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -4212,34 +4232,208 @@ fun AiSettingsPage(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("🤖 AI Street Navigator", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("🤖", fontSize = 20.sp)
+                        Text("AI Navigator & Gemini API Integration", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 16.sp)
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        "Provides natural language search & contextual recommendations using real SF civic datasets.",
-                        color = Mist400,
-                        fontSize = 12.sp
+                        "Compass SF uses online Gemini AI as its primary experience to deliver intelligent recommendations, natural language queries, and street flyer parsing. If offline or without an API key, local keyword matching acts as a graceful fallback.",
+                        color = Mist300,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp
                     )
+                }
+            }
+        }
+
+        // Response Style Persona
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Guide Persona & Response Style", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                    Text("Customize how the AI assistant frames recommendations and guidance", color = Mist400, fontSize = 11.5.sp)
                     Spacer(modifier = Modifier.height(12.dp))
+
+                    AiNavigatorStyle.entries.forEach { style ->
+                        val isSelected = aiStyle == style
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Beacon500.copy(alpha = 0.18f) else Ink800)
+                                .border(1.dp, if (isSelected) Beacon500 else Ink700, RoundedCornerShape(8.dp))
+                                .clickable { viewModel.setAiNavigatorStyle(style) }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(style.title, fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                                Text(style.description, color = Mist400, fontSize = 11.sp)
+                            }
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { viewModel.setAiNavigatorStyle(style) },
+                                colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+            }
+        }
+
+        // Online / Offline Control
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Connectivity & Offline Mode Control", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Active Tone", fontSize = 12.sp, color = Mist300)
-                        Text(aiStyle.title, fontSize = 12.sp, color = Beacon500, fontWeight = FontWeight.Bold)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Force Offline-Only Mode", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Never contact Gemini API; force local keyword search fallback", color = Mist400, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = aiOffline,
+                            onCheckedChange = { viewModel.setAiOfflineOnly(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
+                        )
                     }
                 }
             }
         }
+
+        // Custom API Key & Endpoint
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Custom API Key & Server Endpoint", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                    Text("Optional custom Gemini API credentials or server proxy", color = Mist400, fontSize = 11.5.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedTextField(
+                        value = keyInput,
+                        onValueChange = {
+                            keyInput = it
+                            viewModel.setAiCustomApiKey(it)
+                        },
+                        label = { Text("Custom Gemini API Key", fontSize = 12.sp) },
+                        placeholder = { Text("Enter AI Studio or Gemini API key", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Beacon500,
+                            unfocusedBorderColor = Ink700,
+                            focusedTextColor = Mist100,
+                            unfocusedTextColor = Mist100
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = endpointInput,
+                        onValueChange = {
+                            endpointInput = it
+                            viewModel.setAiCustomEndpoint(it)
+                        },
+                        label = { Text("Custom API Base Endpoint", fontSize = 12.sp) },
+                        placeholder = { Text("https://generativelanguage.googleapis.com", fontSize = 11.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Beacon500,
+                            unfocusedBorderColor = Ink700,
+                            focusedTextColor = Mist100,
+                            unfocusedTextColor = Mist100
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = { viewModel.testAiConnection() },
+                        enabled = !isTesting,
+                        colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isTesting) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), color = OnAccentColor, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Testing Connection...", fontSize = 12.sp)
+                        } else {
+                            Icon(Icons.Default.Bolt, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Test Gemini API Connection", fontSize = 12.sp)
+                        }
+                    }
+
+                    if (!connectionStatus.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Ink800, RoundedCornerShape(6.dp))
+                                .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                .padding(10.dp)
+                        ) {
+                            Text(connectionStatus, color = Mist100, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Reset
+        item {
+            OutlinedButton(
+                onClick = {
+                    viewModel.resetAiSettings()
+                    keyInput = ""
+                    endpointInput = ""
+                },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon500),
+                border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Reset AI Settings to Defaults", fontSize = 12.sp)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
     }
 }
 
-// --- Privacy Sub-Page ---
+// --- Search Sub-Page ---
 @Composable
-fun PrivacySettingsPage(
+fun SearchSettingsPage(
     viewModel: CompassViewModel
 ) {
+    val excludeNonLoc = viewModel.excludeNonLocationResources.value
+    val openOnly = viewModel.askOpenOnly.value
     val incognito = viewModel.incognitoSearchMode.value
 
     LazyColumn(
@@ -4253,8 +4447,55 @@ fun PrivacySettingsPage(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Text("🕵️ Private Street Search", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("🔍 Directory Search & Filtering Preferences", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Exclude Non-Location Helplines", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Hide phone-only / website-only resources that lack physical SF street addresses", color = Mist400, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = excludeNonLoc,
+                            onCheckedChange = { viewModel.toggleExcludeNonLocationResources(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Default Open-Now Filter", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Automatically filter search results to currently open services", color = Mist400, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = openOnly,
+                            onCheckedChange = { viewModel.askOpenOnly.value = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🕵️ Ephemeral Search Privacy", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -4263,7 +4504,7 @@ fun PrivacySettingsPage(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Incognito Search Mode", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
-                            Text("Do not record search queries to recent history", color = Mist400, fontSize = 11.sp)
+                            Text("Do not save recent search queries to local search log", color = Mist400, fontSize = 11.sp)
                         }
                         Switch(
                             checked = incognito,
@@ -4280,10 +4521,273 @@ fun PrivacySettingsPage(
                         border = BorderStroke(1.dp, Ink700),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Clear Recent Search Queries", fontSize = 12.sp)
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Clear Recent Search Queries History", fontSize = 12.sp)
                     }
                 }
             }
+        }
+    }
+}
+
+// --- Map Sub-Page ---
+@Composable
+fun MapSettingsPage(
+    viewModel: CompassViewModel
+) {
+    val transit = viewModel.mapLayerTransit.value
+    val neighborhoods = viewModel.mapLayerNeighborhoods.value
+    val landmarks = viewModel.mapLayerLandmarks.value
+    val clustering = viewModel.mapClusteringMode.value
+    val reducedMotion = viewModel.mapReducedMotion.value
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🗺️ Map Visual Layers", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Transit Lines & Stops", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Show Muni bus, BART, and light rail corridors", color = Mist400, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = transit,
+                            onCheckedChange = { viewModel.toggleMapLayerTransit(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Neighborhood Boundaries", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Highlight Tenderloin, Mission, SoMa & Civic Center boundaries", color = Mist400, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = neighborhoods,
+                            onCheckedChange = { viewModel.toggleMapLayerNeighborhoods(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("City Landmarks", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Display key reference points like City Hall, BART stations & parks", color = Mist400, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = landmarks,
+                            onCheckedChange = { viewModel.toggleMapLayerLandmarks(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Density & Motion Settings", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text("Pin Clustering Mode", fontSize = 12.sp, color = Mist300, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    MapClusteringMode.entries.forEach { mode ->
+                        val isSelected = clustering == mode
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Beacon500.copy(alpha = 0.18f) else Ink800)
+                                .border(1.dp, if (isSelected) Beacon500 else Ink700, RoundedCornerShape(8.dp))
+                                .clickable { viewModel.selectMapClusteringMode(mode) }
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(mode.displayName, color = Mist100, fontSize = 12.5.sp, fontWeight = FontWeight.Medium)
+                            RadioButton(
+                                selected = isSelected,
+                                onClick = { viewModel.selectMapClusteringMode(mode) },
+                                colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Reduced Motion", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Disable map pan & zoom animations for reduced visual stress", color = Mist400, fontSize = 11.sp)
+                        }
+                        Switch(
+                            checked = reducedMotion,
+                            onCheckedChange = { viewModel.toggleMapReducedMotion(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// --- About & Help Sub-Page ---
+@Composable
+fun AboutHelpSettingsPage(
+    viewModel: CompassViewModel
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(Icons.Filled.Explore, contentDescription = null, tint = Beacon500, modifier = Modifier.size(32.dp))
+                        Column {
+                            Text("Compass SF", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 18.sp)
+                            Text("v3.0.0 • Local Personal Civic Navigator", color = Beacon400, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        "Designed specifically for San Francisco residents, unhoused community members, social workers, and street navigators. Provides fast, offline-ready access to daily essential services with intelligent AI search.",
+                        color = Mist300,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("📊 Open Civic Data Sources", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("• ShelterTech SF Service Guide — Community-verified shelters, meals & hygiene", color = Mist300, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("• DataSF Open Data Portal — City & County of San Francisco public facilities", color = Mist300, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("• CalFresh RMP — Verified EBT hot food restaurant vendor directory", color = Mist300, fontSize = 12.sp)
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🛡️ Privacy & Storage Architecture", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "100% Private & Local-Only. Your notes, checklist tasks, search history, and relevance profile never leave your phone. There are no remote user accounts or profile tracking.",
+                        color = Mist300,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🚨 Emergency & Street Hotlines", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HotlineRow("988 Suicide & Crisis Lifeline", "988", "24/7 free & confidential emotional support")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HotlineRow("SF City Services (311)", "311", "San Francisco non-emergency city services")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HotlineRow("211 Bay Area Help", "211", "Community health and human services referral")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HotlineRow(title: String, phone: String, desc: String) {
+    val context = LocalContext.current
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Ink800, RoundedCornerShape(8.dp))
+            .padding(10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, color = Mist100, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+            Text(desc, color = Mist400, fontSize = 10.5.sp)
+        }
+        Button(
+            onClick = {
+                val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+                context.startActivity(intent)
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+        ) {
+            Text("Call $phone", fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -4292,15 +4796,15 @@ fun PrivacySettingsPage(
 @Composable
 fun StorageSettingsPage(
     viewModel: CompassViewModel,
-    resources: List<Resource>,
-    rmpLocations: List<RmpLocation>,
-    visits: List<Visit>,
-    tasks: List<Task>,
-    onExportClick: () -> Unit,
-    onImportClick: () -> Unit,
-    onOpenPasteJson: () -> Unit,
-    onOpenPhotoAudit: () -> Unit,
-    onOpenReseedConfirm: () -> Unit
+    resources: List<Resource> = emptyList(),
+    rmpLocations: List<RmpLocation> = emptyList(),
+    visits: List<Visit> = emptyList(),
+    tasks: List<Task> = emptyList(),
+    onExportClick: () -> Unit = {},
+    onImportClick: () -> Unit = {},
+    onOpenPasteJson: () -> Unit = {},
+    onOpenPhotoAudit: () -> Unit = {},
+    onOpenReseedConfirm: () -> Unit = {}
 ) {
     val hiddenResources = remember(resources) { resources.filter { it.hidden } }
     val hiddenRmp = remember(rmpLocations) { rmpLocations.filter { it.hidden } }

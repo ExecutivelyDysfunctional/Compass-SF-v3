@@ -203,8 +203,12 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         // Check seeding and saved preferences on start
         viewModelScope.launch {
             repository.checkAndSeedDatabase()
-            val savedIcon = repository.getSetting("app_icon") ?: "classic"
-            currentAppIconKey.value = savedIcon
+            val savedIcon = repository.getSetting("app_icon") ?: AppIconManager.DEFAULT_KEY
+            val validatedIcon = if (AppIconManager.isValidKey(savedIcon)) savedIcon else AppIconManager.DEFAULT_KEY
+            currentAppIconKey.value = validatedIcon
+            try {
+                AppIconManager.applyAppIcon(application, validatedIcon)
+            } catch (_: Exception) {}
 
             repository.getSetting("theme_mode")?.let { id ->
                 currentThemeMode.value = AppThemeMode.fromId(id)
@@ -802,9 +806,13 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun selectAppIcon(iconKey: String) {
-        currentAppIconKey.value = iconKey
+        val validatedIcon = if (AppIconManager.isValidKey(iconKey)) iconKey else AppIconManager.DEFAULT_KEY
+        currentAppIconKey.value = validatedIcon
+        try {
+            AppIconManager.applyAppIcon(getApplication(), validatedIcon)
+        } catch (_: Exception) {}
         viewModelScope.launch {
-            repository.saveSetting("app_icon", iconKey)
+            repository.saveSetting("app_icon", validatedIcon)
         }
     }
 
