@@ -57,19 +57,9 @@ data class InlineData(
 )
 
 @Serializable
-data class ResponseFormat(
-    val text: ResponseFormatText? = null
-)
-
-@Serializable
-data class ResponseFormatText(
-    val mimeType: String,
-    val schema: JsonObject? = null
-)
-
-@Serializable
 data class GenerationConfig(
-    val responseFormat: ResponseFormat? = null,
+    val responseMimeType: String? = null,
+    val responseSchema: JsonObject? = null,
     val temperature: Float? = null
 )
 
@@ -253,7 +243,8 @@ object AiService {
             contents = listOf(Content(parts = listOf(Part(text = prompt)))),
             systemInstruction = Content(parts = listOf(Part(text = systemInstruction))),
             generationConfig = GenerationConfig(
-                responseFormat = ResponseFormat(ResponseFormatText(mimeType = "application/json", schema = schemaJson)),
+                responseMimeType = "application/json",
+                responseSchema = schemaJson,
                 temperature = 0.1f
             )
         )
@@ -264,7 +255,8 @@ object AiService {
             val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?: return@withContext runOfflineParser(rawText)
             Log.d("AiService", "Parsed AI response: $jsonText")
-            return@withContext json.decodeFromString<ResourceDraft>(jsonText)
+            val cleanJson = jsonText.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            return@withContext json.decodeFromString<ResourceDraft>(cleanJson)
         } catch (e: Exception) {
             Log.e("AiService", "Failed to parse via Gemini API, falling back to offline", e)
             return@withContext runOfflineParser(rawText)
@@ -390,7 +382,8 @@ object AiService {
             ),
             systemInstruction = Content(parts = listOf(Part(text = systemInstruction))),
             generationConfig = GenerationConfig(
-                responseFormat = ResponseFormat(ResponseFormatText(mimeType = "application/json", schema = schemaJson)),
+                responseMimeType = "application/json",
+                responseSchema = schemaJson,
                 temperature = 0.1f
             )
         )
@@ -401,7 +394,8 @@ object AiService {
             val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?: return@withContext runOfflineImageParser(notes)
             Log.d("AiService", "Parsed flyer image response: $jsonText")
-            return@withContext json.decodeFromString<ResourceDraft>(jsonText)
+            val cleanJson = jsonText.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            return@withContext json.decodeFromString<ResourceDraft>(cleanJson)
         } catch (e: Exception) {
             Log.e("AiService", "Failed to parse image via Gemini API, falling back to offline", e)
             return@withContext runOfflineImageParser(notes)
@@ -504,7 +498,8 @@ object AiService {
             contents = listOf(Content(parts = listOf(Part(text = prompt)))),
             systemInstruction = Content(parts = listOf(Part(text = systemInstruction))),
             generationConfig = GenerationConfig(
-                responseFormat = ResponseFormat(ResponseFormatText(mimeType = "application/json", schema = schemaJson)),
+                responseMimeType = "application/json",
+                responseSchema = schemaJson,
                 temperature = temperature
             )
         )
@@ -515,7 +510,8 @@ object AiService {
             val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?: return@withContext runOfflineAsk(question, resources, style)
             Log.d("AiService", "Ask AI response: $jsonText")
-            return@withContext json.decodeFromString<AskResponse>(jsonText)
+            val cleanJson = jsonText.trim().removePrefix("```json").removePrefix("```").removeSuffix("```").trim()
+            return@withContext json.decodeFromString<AskResponse>(cleanJson)
         } catch (e: Exception) {
             Log.e("AiService", "Failed to ask AI, falling back to offline", e)
             return@withContext runOfflineAsk(question, resources, style)

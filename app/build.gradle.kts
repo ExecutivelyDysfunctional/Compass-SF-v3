@@ -18,7 +18,22 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        val geminiKey = System.getenv("GEMINI_API_KEY") ?: ""
+        val envFile = rootProject.file(".env")
+        val envExampleFile = rootProject.file(".env.example")
+        fun readProp(file: File, key: String): String? {
+            if (!file.exists()) return null
+            return file.readLines()
+                .map { it.trim() }
+                .firstOrNull { it.startsWith("$key=") && !it.startsWith("#") }
+                ?.substringAfter("$key=")
+                ?.trim()
+                ?.removeSurrounding("\"")
+                ?.removeSurrounding("'")
+        }
+        val geminiKey = System.getenv("GEMINI_API_KEY")?.takeIf { it.isNotBlank() }
+            ?: readProp(envFile, "GEMINI_API_KEY")?.takeIf { it.isNotBlank() }
+            ?: readProp(envExampleFile, "GEMINI_API_KEY")?.takeIf { it.isNotBlank() }
+            ?: ""
         buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
     }
 

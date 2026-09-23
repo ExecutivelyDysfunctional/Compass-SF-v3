@@ -39,6 +39,7 @@
   - Dedicated "Map" switcher action seamlessly routing to the full-screen Map experience with current category filters preserved.
 - **Ask Screen (Navigator AI - Gemini Integration)**:
   - Natural language street navigation and resource consultation powered by Gemini 3.5 Flash via Retrofit.
+  - Resolved issue where Ask AI reverted to offline fallback: updated Gemini REST API payload serialization from unsupported `responseFormat` to canonical `responseMimeType: "application/json"` and `responseSchema`, and robustified API key resolution across environment variables and `.env`/`.env.example` configurations.
   - Query input with optional neighborhood filter and "Open now only" toggle constraint.
   - Structured response rendering: conversational guidance summary, numbered logical next steps, and specific database-linked "Navigator Picks" with justification.
   - Built-in offline fallback matcher if API key is unconfigured or network is unavailable.
