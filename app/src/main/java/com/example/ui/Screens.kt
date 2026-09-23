@@ -34,7 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -3140,7 +3142,23 @@ fun InfoScreen() {
 data class Hotline(val name: String, val phone: String, val desc: String)
 data class OnlineDirectorySource(val name: String, val org: String, val desc: String, val url: String, val tag: String)
 
-// --- Settings Screen ---
+// --- Settings Hub & Sub-Pages ---
+enum class SettingsSubPage(
+    val id: String,
+    val title: String,
+    val subtitle: String,
+    val icon: ImageVector,
+    val emoji: String
+) {
+    HUB("hub", "Settings Hub", "Select a category to customize options", Icons.Default.Settings, "⚙️"),
+    APPEARANCE("appearance", "Appearance & Visuals", "Themes, accent colors, text scale, map style & launcher icons", Icons.Default.Palette, "🎨"),
+    PROFILE("profile", "Navigator Profile & Presets", "Demographic filters, mobility mode, dietary rules & need boosts", Icons.Default.Person, "👤"),
+    NAVIGATION("navigation", "Navigation & Data Sources", "Startup screen, bottom bar, anchors & civic feeds", Icons.Default.Navigation, "🧭"),
+    AI("ai", "AI Navigator Assistant", "Guide persona tone, offline Gemini model & custom endpoint", Icons.Default.AutoAwesome, "🤖"),
+    PRIVACY("privacy", "Privacy & Ephemeral Search", "Zero-log incognito search & recent search log controls", Icons.Default.Security, "🕵️"),
+    STORAGE("storage", "Offline Storage & Backup", "Photo flyer cache, factory re-seed baseline & JSON exports", Icons.Default.Storage, "💾")
+}
+
 @Composable
 fun SettingsScreen(
     viewModel: CompassViewModel
@@ -3152,14 +3170,14 @@ fun SettingsScreen(
     val visits by viewModel.allVisits.collectAsState()
     val tasks by viewModel.allTasks.collectAsState()
 
-    val totalFavs = remember(resources, rmpLocations) {
-        resources.count { it.favorite } + rmpLocations.count { it.favorite }
+    var activeSubPage by remember { mutableStateOf(SettingsSubPage.HUB) }
+
+    // Intercept back button on sub-pages
+    if (activeSubPage != SettingsSubPage.HUB) {
+        BackHandler {
+            activeSubPage = SettingsSubPage.HUB
+        }
     }
-    val totalNotes = remember(resources, rmpLocations) {
-        resources.count { it.personalNotes.isNotBlank() } + rmpLocations.count { it.personalNotes.isNotBlank() }
-    }
-    val totalVisits = remember(visits) { visits.size }
-    val totalTasks = remember(tasks) { tasks.size }
 
     var showPasteJsonDialog by remember { mutableStateOf(false) }
     var pastedJsonText by remember { mutableStateOf("") }
@@ -3180,7 +3198,7 @@ fun SettingsScreen(
                     context.contentResolver.openOutputStream(uri)?.use { stream ->
                         stream.write(json.toByteArray(Charsets.UTF_8))
                     }
-                    viewModel.setExportSuccess("Backup saved successfully! JSON backup file created.")
+                    viewModel.setExportSuccess("Backup saved successfully!")
                     Toast.makeText(context, "Backup exported successfully!", Toast.LENGTH_LONG).show()
                 } catch (e: Exception) {
                     Toast.makeText(context, "Export failed: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_LONG).show()
@@ -3210,14 +3228,364 @@ fun SettingsScreen(
         }
     }
 
-    val hiddenResources = remember(resources) { resources.filter { it.hidden } }
-    val hiddenRmp = remember(rmpLocations) { rmpLocations.filter { it.hidden } }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Ink950)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // Top Header & Sub-page Navigation Breadcrumbs
+            if (activeSubPage != SettingsSubPage.HUB) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = { activeSubPage = SettingsSubPage.HUB },
+                        border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.6f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon500),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.testTag("settings_back_to_hub")
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back to Settings Hub",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Settings Hub", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
 
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(activeSubPage.emoji, fontSize = 14.sp)
+                            Text(activeSubPage.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Mist100)
+                        }
+                        Text(activeSubPage.subtitle, fontSize = 11.sp, color = Mist400, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            } else {
+                // Top Welcome Banner for Settings Hub
+                Column(modifier = Modifier.padding(bottom = 16.dp)) {
+                    Text(
+                        "Settings & Preferences",
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Beacon500,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Categorized preferences with live preview & instant controls",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Mist400
+                    )
+                }
+            }
+
+            // Sub-page View Switcher
+            when (activeSubPage) {
+                SettingsSubPage.HUB -> {
+                    SettingsHubContent(
+                        viewModel = viewModel,
+                        onSelectCategory = { activeSubPage = it }
+                    )
+                }
+                SettingsSubPage.APPEARANCE -> {
+                    AppearanceSettingsPage(viewModel = viewModel)
+                }
+                SettingsSubPage.PROFILE -> {
+                    ProfileSettingsPage(viewModel = viewModel)
+                }
+                SettingsSubPage.NAVIGATION -> {
+                    NavigationSettingsPage(viewModel = viewModel)
+                }
+                SettingsSubPage.AI -> {
+                    AiSettingsPage(viewModel = viewModel)
+                }
+                SettingsSubPage.PRIVACY -> {
+                    PrivacySettingsPage(viewModel = viewModel)
+                }
+                SettingsSubPage.STORAGE -> {
+                    StorageSettingsPage(
+                        viewModel = viewModel,
+                        resources = resources,
+                        rmpLocations = rmpLocations,
+                        visits = visits,
+                        tasks = tasks,
+                        onExportClick = { exportLauncher.launch("compass_sf_backup_${System.currentTimeMillis()}.json") },
+                        onImportClick = { importLauncher.launch(arrayOf("application/json")) },
+                        onOpenPasteJson = { showPasteJsonDialog = true },
+                        onOpenPhotoAudit = { showPhotoCacheInspectionDialog = true },
+                        onOpenReseedConfirm = { showReseedConfirmDialog = true }
+                    )
+                }
+            }
+        }
+    }
+
+    // Dialogs
+    if (showPasteJsonDialog) {
+        AlertDialog(
+            onDismissRequest = { showPasteJsonDialog = false },
+            containerColor = Ink900,
+            title = { Text("Paste JSON Backup Data", color = Beacon500, fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("Paste a valid JSON backup exported from Compass SF:", color = Mist300, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = pastedJsonText,
+                        onValueChange = { pastedJsonText = it },
+                        modifier = Modifier.fillMaxWidth().height(180.dp),
+                        placeholder = { Text("Paste JSON string here...", color = Mist400, fontSize = 11.sp) },
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Beacon500, unfocusedBorderColor = Ink700, focusedTextColor = Mist100, unfocusedTextColor = Mist100)
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (pastedJsonText.isNotBlank()) {
+                            viewModel.loadImportJson(pastedJsonText)
+                            showPasteJsonDialog = false
+                            pastedJsonText = ""
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor)
+                ) { Text("Import JSON Data") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPasteJsonDialog = false }) { Text("Cancel", color = Mist400) }
+            }
+        )
+    }
+
+    if (showPhotoCacheInspectionDialog) {
+        AlertDialog(
+            onDismissRequest = { showPhotoCacheInspectionDialog = false },
+            containerColor = Ink900,
+            title = { Text("Offline Photo Cache Audit", color = Mist100, fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val photos = viewModel.cachedPhotosList.value
+                    Text("Cached Flyer Photos: ${photos.size}", color = Beacon400, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    if (photos.isEmpty()) {
+                        Text("No flyer photos stored in cache.", color = Mist300, fontSize = 12.sp)
+                    } else {
+                        photos.forEach { p ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth().background(Ink800, RoundedCornerShape(6.dp)).padding(8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(p.fileName, color = Mist100, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Size: ${p.sizeBytes / 1024} KB", color = Mist400, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showPhotoCacheInspectionDialog = false }, colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor)) { Text("Close") }
+            }
+        )
+    }
+
+    if (showReseedConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showReseedConfirmDialog = false },
+            containerColor = Ink900,
+            title = { Text("Confirm Factory Re-seed", color = Rose500, fontWeight = FontWeight.Bold) },
+            text = { Text("This will restore the original baseline SF resources and EBT restaurants from seed data. Your personal notes, custom resources, and task checklists will NOT be lost.", color = Mist300, fontSize = 13.sp) },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.triggerFactoryReseed {
+                            showReseedConfirmDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Rose500, contentColor = Color.White)
+                ) { Text("Confirm & Re-seed") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showReseedConfirmDialog = false }, border = BorderStroke(1.dp, Ink700)) { Text("Cancel", fontSize = 13.sp) }
+            }
+        )
+    }
+}
+
+// --- Settings Hub View ---
+@Composable
+fun SettingsHubContent(
+    viewModel: CompassViewModel,
+    onSelectCategory: (SettingsSubPage) -> Unit
+) {
+    val activeMode = viewModel.currentThemeMode.value
+    val activeAccent = viewModel.currentAccentColor.value
+    val activeFontScale = viewModel.currentFontScale.value
+    val demographicPresets = viewModel.demographicPresets.value
+    val mobilityMode = viewModel.accessibilityMobilityMode.value
+    val dietaryPresets = viewModel.dietaryPresets.value
+    val startupRoute = viewModel.startupScreenRoute.value
+    val defaultAnchor = viewModel.defaultNeighborhoodAnchorId.value
+    val hasDisabledSources = viewModel.hasDisabledDataSources
+    val aiStyle = viewModel.aiNavigatorStyle.value
+    val aiOffline = viewModel.aiOfflineOnly.value
+    val incognito = viewModel.incognitoSearchMode.value
+    val recents = viewModel.recentSearches.value
+    val cacheBytes = viewModel.totalPhotoCacheBytes.value
+
+    val subPages = listOf(
+        Triple(
+            SettingsSubPage.APPEARANCE,
+            "${activeMode.displayName} • ${activeAccent.displayName} • ${activeFontScale.displayName}",
+            "Live preview card, color themes, font scaling, map vector style & app launcher branding"
+        ),
+        Triple(
+            SettingsSubPage.PROFILE,
+            "${demographicPresets.size} Demographics • ${if (mobilityMode) "Mobility Mode On" else "Standard"} • ${dietaryPresets.size} Dietary",
+            "Demographic filters, mobility requirements, dietary rules & local priority boosts"
+        ),
+        Triple(
+            SettingsSubPage.NAVIGATION,
+            "Start: ${startupRoute.replaceFirstChar { it.uppercase() }} • Anchor: ${defaultAnchor.replaceFirstChar { it.uppercase() }} • ${if (hasDisabledSources) "Filtered" else "All Feeds Active"}",
+            "Startup screen, bottom navigation bar items, default neighborhood anchor & civic feeds"
+        ),
+        Triple(
+            SettingsSubPage.AI,
+            "${aiStyle.title} • ${if (aiOffline) "Offline Gemini" else "Online Gemini"}",
+            "Guide persona tone, offline local Gemini fallback, custom API key & endpoint test"
+        ),
+        Triple(
+            SettingsSubPage.PRIVACY,
+            "Incognito: ${if (incognito) "ENABLED" else "Off"} • ${recents.size} Recent Queries",
+            "Zero-log ephemeral search mode & recent search query history controls"
+        ),
+        Triple(
+            SettingsSubPage.STORAGE,
+            "Photo Cache: ${(cacheBytes / 1024 / 1024)}MB • JSON Backup & Import",
+            "Flyer photo offline cache audit, baseline database factory re-seed & JSON exports"
+        )
+    )
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        items(subPages) { (page, summaryText, description) ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onSelectCategory(page) }
+                    .testTag("settings_category_${page.id}")
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(Beacon500.copy(alpha = 0.18f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = page.icon,
+                            contentDescription = page.title,
+                            tint = Beacon500,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(14.dp))
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(page.emoji, fontSize = 14.sp)
+                            Text(
+                                page.title,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = Mist100
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(2.dp))
+
+                        Box(
+                            modifier = Modifier
+                                .background(Ink800, RoundedCornerShape(6.dp))
+                                .border(1.dp, Ink700, RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                summaryText,
+                                color = Beacon400,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Text(
+                            description,
+                            color = Mist400,
+                            fontSize = 11.5.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Icon(
+                        Icons.Default.ChevronRight,
+                        contentDescription = "Open ${page.title}",
+                        tint = Mist400,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+
+// --- Appearance & Visuals Sub-Page (with Live Preview anchored at top) ---
+@Composable
+fun AppearanceSettingsPage(
+    viewModel: CompassViewModel
+) {
     val activeMode = viewModel.currentThemeMode.value
     val activeAccent = viewModel.currentAccentColor.value
     val activeFontScale = viewModel.currentFontScale.value
     val highContrast = viewModel.highContrastEnabled.value
     val compactListing = viewModel.compactListingEnabled.value
+    val activeAppIcon = viewModel.currentAppIconKey.value
 
     val iconChoices = listOf(
         "classic" to "Compass Rose",
@@ -3227,306 +3595,53 @@ fun SettingsScreen(
         "wayfinder" to "Wayfinder"
     )
 
-    val listState = rememberLazyListState()
-    val showScrollToTop by remember {
-        derivedStateOf { listState.firstVisibleItemIndex > 1 }
-    }
-
-    // Exact index targets in the LazyColumn
-    val targetProfileIndex = 3
-    val targetWorkspaceIndex = 4
-    val targetFiltersIndex = 5
-    val targetAiIndex = 6
-    val targetSourcesIndex = 7
-    val targetIncognitoIndex = 8
-    val targetPhotoCacheIndex = 9
-    val targetReseedIndex = 10
-    val targetThemeIndex = 11
-    val targetAccentIndex = 12
-    val targetTextIndex = 13
-    val targetDisplayIndex = 14
-    val targetMapIndex = 15
-    val targetIconIndex = 16
-    val targetBackupIndex = 17
-    val targetHiddenIndex = 18
-    val targetStatsIndex = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-        18 + 1 + hiddenResources.size + hiddenRmp.size
-    } else {
-        18
-    }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Ink950)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Top Header
-            item {
-                Column {
-                    Text(
-                        "Settings & Customization",
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Beacon500,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        "Personalize theme atmosphere, navigation shortcuts, font scaling, and neighborhood anchors",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Mist400
-                    )
-                }
-            }
-
-            // Quick Settings & Customizations Menu Index Card
-            item {
-                Card(
-                    colors = CardDefaults.cardColors(containerColor = Ink900),
-                    border = BorderStroke(
-                        if (highContrast) 2.dp else 1.dp,
-                        if (highContrast) Beacon500 else Ink700
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("settings_index_card")
-                ) {
-                    Column(modifier = Modifier.padding(14.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(30.dp)
-                                        .background(Beacon500.copy(alpha = 0.2f), CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.MenuBook,
-                                        contentDescription = null,
-                                        tint = Beacon500,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                                Column {
-                                    Text(
-                                        "QUICK SETTINGS INDEX",
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 12.sp,
-                                        color = Beacon500,
-                                        letterSpacing = 0.8.sp
-                                    )
-                                    Text(
-                                        "Tap any section to jump directly to it",
-                                        fontSize = 11.sp,
-                                        color = Mist400
-                                    )
-                                }
-                            }
-
-                            Box(
-                                modifier = Modifier
-                                    .background(Ink800, RoundedCornerShape(12.dp))
-                                    .border(1.dp, Ink700, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 8.dp, vertical = 3.dp)
-                            ) {
-                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 17 else 16
-                                Text(
-                                    "$totalSections Sections",
-                                    color = Mist200,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        val indexEntries = remember(hiddenResources.size, hiddenRmp.size, targetStatsIndex) {
-                            val list = mutableListOf(
-                                Triple("👤 My Profile", "Needs & Boosts", targetProfileIndex),
-                                Triple("🧭 Navigation", "Startup & Bottom Bar", targetWorkspaceIndex),
-                                Triple("⚙️ Filters", "Demographic & Dietary", targetFiltersIndex),
-                                Triple("🤖 AI Navigator", "Style & Endpoint", targetAiIndex),
-                                Triple("🗄️ Data Sources", "Civic Feeds & APIs", targetSourcesIndex),
-                                Triple("🕵️ Privacy Search", "Incognito & Recents", targetIncognitoIndex),
-                                Triple("📸 Photo Cache", "Flyer Cache Storage", targetPhotoCacheIndex),
-                                Triple("🔄 Re-seed DB", "Baseline Refresh", targetReseedIndex),
-                                Triple("🎨 Themes", "Atmosphere & Tones", targetThemeIndex),
-                                Triple("🌈 Accents", "Highlight Colors", targetAccentIndex),
-                                Triple("🔤 Text Size", "Scaling & Readability", targetTextIndex),
-                                Triple("🔆 Display", "Contrast & Density", targetDisplayIndex),
-                                Triple("🗺️ Map Layers", "Transit & Radar", targetMapIndex),
-                                Triple("📱 App Icon", "Launcher Style", targetIconIndex),
-                                Triple("💾 Backup", "Granular JSON Export", targetBackupIndex)
-                            )
-                            if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-                                list.add(Triple("👁️ Hidden", "Unhide (${hiddenResources.size + hiddenRmp.size})", targetHiddenIndex))
-                            }
-                            list.add(Triple("📊 Statistics", "Storage & DB Stats", targetStatsIndex))
-                            list
-                        }
-
-                        // 2-Column Responsive Navigation Grid
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            for (i in indexEntries.indices step 2) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    val item1 = indexEntries[i]
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Ink800)
-                                            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
-                                            .clickable {
-                                                coroutineScope.launch {
-                                                    listState.animateScrollToItem(item1.third)
-                                                }
-                                            }
-                                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Text(
-                                                    item1.first,
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 12.sp,
-                                                    color = Mist100,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                                Text(
-                                                    item1.second,
-                                                    fontSize = 9.5.sp,
-                                                    color = Mist400,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
-                                                )
-                                            }
-                                            Icon(
-                                                Icons.Default.ArrowDownward,
-                                                contentDescription = "Jump to ${item1.first}",
-                                                tint = Beacon500,
-                                                modifier = Modifier.size(13.dp)
-                                            )
-                                        }
-                                    }
-
-                                    if (i + 1 < indexEntries.size) {
-                                        val item2 = indexEntries[i + 1]
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(Ink800)
-                                                .border(1.dp, Ink700, RoundedCornerShape(8.dp))
-                                                .clickable {
-                                                    coroutineScope.launch {
-                                                        listState.animateScrollToItem(item2.third)
-                                                    }
-                                                }
-                                                .padding(horizontal = 10.dp, vertical = 8.dp)
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Column(modifier = Modifier.weight(1f)) {
-                                                    Text(
-                                                        item2.first,
-                                                        fontWeight = FontWeight.Bold,
-                                                        fontSize = 12.sp,
-                                                        color = Mist100,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                    Text(
-                                                        item2.second,
-                                                        fontSize = 9.5.sp,
-                                                        color = Mist400,
-                                                        maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
-                                                    )
-                                                }
-                                                Icon(
-                                                    Icons.Default.ArrowDownward,
-                                                    contentDescription = "Jump to ${item2.first}",
-                                                    tint = Beacon500,
-                                                    modifier = Modifier.size(13.dp)
-                                                )
-                                            }
-                                        }
-                                    } else {
-                                        Spacer(modifier = Modifier.weight(1f))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Live Interactive Theme Preview Card
-            item {
+        // TOP ANCHORED LIVE PREVIEW CARD
+        item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
                 border = BorderStroke(
                     if (highContrast) 2.dp else 1.dp,
                     if (highContrast) Beacon500 else Ink700
                 ),
-                modifier = Modifier.fillMaxWidth()
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("appearance_live_preview_card")
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(modifier = Modifier.padding(14.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            "LIVE PREVIEW",
-                            fontWeight = FontWeight.Black,
-                            fontSize = 11.sp,
-                            color = Beacon500,
-                            letterSpacing = 1.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("✨ LIVE PREVIEW", fontWeight = FontWeight.Black, fontSize = 11.sp, color = Beacon500, letterSpacing = 1.sp)
+                        }
+
                         Box(
                             modifier = Modifier
                                 .background(Ink800, RoundedCornerShape(12.dp))
+                                .border(1.dp, Ink700, RoundedCornerShape(12.dp))
                                 .padding(horizontal = 8.dp, vertical = 3.dp)
                         ) {
                             Text(
-                                "${activeMode.displayName} • ${activeAccent.displayName}",
+                                "${activeMode.displayName} • ${activeAccent.displayName} • ${activeFontScale.displayName}",
                                 color = Mist100,
                                 fontSize = 10.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Mock Resource Card inside Live Preview
                     Card(
                         colors = CardDefaults.cardColors(containerColor = Ink800),
-                        border = BorderStroke(1.dp, if (highContrast) Beacon500.copy(alpha = 0.8f) else Ink700),
+                        border = BorderStroke(1.dp, if (highContrast) Beacon500 else Ink700),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -3570,1985 +3685,141 @@ fun SettingsScreen(
                                 ) {
                                     Text("Open Now", color = OnAccentColor, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
-                                Box(
-                                    modifier = Modifier
-                                        .background(Ink900, RoundedCornerShape(4.dp))
-                                        .border(1.dp, Ink700, RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text("Verified", color = Beacon500, fontSize = 10.sp)
-                                }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
-                    // Sample Action Buttons
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
-                            onClick = { /* Demo */ },
+                            onClick = { },
                             modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor)
                         ) {
-                            Text("Sample Action", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Primary Action", fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                         OutlinedButton(
-                            onClick = { /* Demo */ },
+                            onClick = { },
                             modifier = Modifier.weight(1f),
-                            border = BorderStroke(1.dp, Ink700),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100)
-                        ) {
-                            Text("Secondary", fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section: Relevance Profile (Private & Local)
-        item {
-            val profile = viewModel.userProfile.value
-            var showResetDialog by remember { mutableStateOf(false) }
-
-            if (showResetDialog) {
-                AlertDialog(
-                    onDismissRequest = { showResetDialog = false },
-                    title = { Text("Reset Relevance Profile?", fontWeight = FontWeight.Bold, color = Mist100) },
-                    text = {
-                        Text(
-                            "This will clear all primary needs, demographic boosts, dietary preferences, access methods, neighborhood anchors, and language selections. Your search results will return to default ranking.",
-                            color = Mist300,
-                            fontSize = 13.sp
-                        )
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                viewModel.resetUserProfile()
-                                showResetDialog = false
-                                Toast.makeText(context, "Relevance profile reset to default", Toast.LENGTH_SHORT).show()
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = Rose500, contentColor = OnAccentColor)
-                        ) {
-                            Text("Reset", fontWeight = FontWeight.Bold)
-                        }
-                    },
-                    dismissButton = {
-                        OutlinedButton(
-                            onClick = { showResetDialog = false },
                             border = BorderStroke(1.dp, Ink700),
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200)
                         ) {
-                            Text("Cancel")
-                        }
-                    },
-                    containerColor = Ink900,
-                    shape = RoundedCornerShape(12.dp)
-                )
-            }
-
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, if (profile.isEmpty) Ink700 else Beacon500),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_relevance_profile")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("MY PROFILE", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Relevance Profile",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-
-                    Text(
-                        "Personalize and boost resource recommendations based on your needs, language, access preferences, and neighborhood. Stored exclusively on your device — never sent to cloud or AI.",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Privacy Assurance Pill
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = Ink950,
-                        border = BorderStroke(1.dp, Ink800),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("🔒", fontSize = 14.sp)
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    "100% Private & Local On-Device",
-                                    fontSize = 11.5.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Mist200
-                                )
-                                Text(
-                                    "No accounts, tracking, or publishing. Preferences boost relevant results without hiding other services.",
-                                    fontSize = 10.5.sp,
-                                    color = Mist400
-                                )
-                            }
-                            if (!profile.isEmpty) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Beacon500.copy(alpha = 0.2f),
-                                    border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f))
-                                ) {
-                                    Text(
-                                        "${profile.activePreferenceCount} Active",
-                                        color = Beacon400,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection 1: Primary Needs & Services
-                    Text(
-                        "PRIMARY NEEDS & URGENT SERVICES (+40 score boost)",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Beacon400,
-                        letterSpacing = 0.8.sp
-                    )
-                    Text(
-                        "Select any services you are actively looking for to prioritize matching providers.",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for (i in ProfileConstants.PRIMARY_NEEDS.indices step 2) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                val need1 = ProfileConstants.PRIMARY_NEEDS[i]
-                                val isSelected1 = profile.primaryNeeds.contains(need1.id)
-                                FilterChip(
-                                    selected = isSelected1,
-                                    onClick = { viewModel.toggleProfilePrimaryNeed(need1.id) },
-                                    label = {
-                                        Text(
-                                            "${need1.icon} ${need1.title}",
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isSelected1) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected1) Ink950 else Mist200,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Beacon500,
-                                        containerColor = Ink800
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        borderColor = if (isSelected1) Beacon500 else Ink700,
-                                        enabled = true,
-                                        selected = isSelected1
-                                    ),
-                                    modifier = Modifier.weight(1f).testTag("profile_need_${need1.id}")
-                                )
-
-                                if (i + 1 < ProfileConstants.PRIMARY_NEEDS.size) {
-                                    val need2 = ProfileConstants.PRIMARY_NEEDS[i + 1]
-                                    val isSelected2 = profile.primaryNeeds.contains(need2.id)
-                                    FilterChip(
-                                        selected = isSelected2,
-                                        onClick = { viewModel.toggleProfilePrimaryNeed(need2.id) },
-                                        label = {
-                                            Text(
-                                                "${need2.icon} ${need2.title}",
-                                                fontSize = 11.sp,
-                                                fontWeight = if (isSelected2) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected2) Ink950 else Mist200,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Beacon500,
-                                            containerColor = Ink800
-                                        ),
-                                        border = FilterChipDefaults.filterChipBorder(
-                                            borderColor = if (isSelected2) Beacon500 else Ink700,
-                                            enabled = true,
-                                            selected = isSelected2
-                                        ),
-                                        modifier = Modifier.weight(1f).testTag("profile_need_${need2.id}")
-                                    )
-                                } else {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Subsection 2: Target Demographics
-                    Text(
-                        "TARGET DEMOGRAPHIC FOCUS (+30 score boost)",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Beacon400,
-                        letterSpacing = 0.8.sp
-                    )
-                    Text(
-                        "Highlight affirming, specialized, or tailored community providers.",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for (i in DemographicPreset.entries.indices step 2) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                val demo1 = DemographicPreset.entries[i]
-                                val isSelected1 = profile.demographics.contains(demo1)
-                                FilterChip(
-                                    selected = isSelected1,
-                                    onClick = { viewModel.toggleProfileDemographic(demo1) },
-                                    label = {
-                                        Text(
-                                            "${demo1.icon} ${demo1.title}",
-                                            fontSize = 11.sp,
-                                            fontWeight = if (isSelected1) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected1) Ink950 else Mist200,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = Beacon500,
-                                        containerColor = Ink800
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        borderColor = if (isSelected1) Beacon500 else Ink700,
-                                        enabled = true,
-                                        selected = isSelected1
-                                    ),
-                                    modifier = Modifier.weight(1f).testTag("profile_demo_${demo1.id}")
-                                )
-
-                                if (i + 1 < DemographicPreset.entries.size) {
-                                    val demo2 = DemographicPreset.entries[i + 1]
-                                    val isSelected2 = profile.demographics.contains(demo2)
-                                    FilterChip(
-                                        selected = isSelected2,
-                                        onClick = { viewModel.toggleProfileDemographic(demo2) },
-                                        label = {
-                                            Text(
-                                                "${demo2.icon} ${demo2.title}",
-                                                fontSize = 11.sp,
-                                                fontWeight = if (isSelected2) FontWeight.Bold else FontWeight.Normal,
-                                                color = if (isSelected2) Ink950 else Mist200,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Beacon500,
-                                            containerColor = Ink800
-                                        ),
-                                        border = FilterChipDefaults.filterChipBorder(
-                                            borderColor = if (isSelected2) Beacon500 else Ink700,
-                                            enabled = true,
-                                            selected = isSelected2
-                                        ),
-                                        modifier = Modifier.weight(1f).testTag("profile_demo_${demo2.id}")
-                                    )
-                                } else {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Subsection 3: Dietary Preferences
-                    Text(
-                        "DIETARY PREFERENCES (+25 score boost)",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Beacon400,
-                        letterSpacing = 0.8.sp
-                    )
-                    Text(
-                        "Prioritize meals, food pantries, and grocery distribution matching dietary choices.",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    ) {
-                        DietaryPreset.entries.forEach { diet ->
-                            val isSelected = profile.dietary.contains(diet)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.toggleProfileDietary(diet) },
-                                label = {
-                                    Text(
-                                        "${diet.icon} ${diet.title}",
-                                        fontSize = 11.sp,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isSelected) Ink950 else Mist200
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Beacon500,
-                                    containerColor = Ink800
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    borderColor = if (isSelected) Beacon500 else Ink700,
-                                    enabled = true,
-                                    selected = isSelected
-                                ),
-                                modifier = Modifier.testTag("profile_diet_${diet.id}")
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Subsection 4: Accessibility & Mobility
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text(
-                                "Mobility & Step-Free Entrance Priority (+25 boost)",
-                                fontWeight = FontWeight.Bold,
-                                color = Mist100,
-                                fontSize = 13.5.sp
-                            )
-                            Text(
-                                "Boost wheelchair accessible, elevator-equipped, and ground-floor locations.",
-                                fontSize = 11.sp,
-                                color = Mist400
-                            )
-                        }
-                        Switch(
-                            checked = profile.accessibilityMobility,
-                            onCheckedChange = { viewModel.setProfileAccessibilityMobility(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            ),
-                            modifier = Modifier.testTag("profile_switch_mobility")
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Subsection 5: Preferred Access Methods
-                    Text(
-                        "PREFERRED ACCESS METHODS (+20 score boost)",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Beacon400,
-                        letterSpacing = 0.8.sp
-                    )
-                    Text(
-                        "Boost services according to how you prefer to connect.",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        ProfileConstants.ACCESS_METHODS.forEach { method ->
-                            val isSelected = profile.preferredAccessMethods.contains(method.id)
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Beacon500.copy(alpha = 0.15f) else Ink800)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Beacon500.copy(alpha = 0.6f) else Ink700,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { viewModel.toggleProfileAccessMethod(method.id) }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp)
-                                    .testTag("profile_access_${method.id}"),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text(method.icon, fontSize = 16.sp)
-                                    Column {
-                                        Text(
-                                            method.title,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            fontSize = 12.5.sp,
-                                            color = if (isSelected) Beacon400 else Mist100
-                                        )
-                                        Text(
-                                            method.description,
-                                            fontSize = 10.5.sp,
-                                            color = Mist400
-                                        )
-                                    }
-                                }
-                                Checkbox(
-                                    checked = isSelected,
-                                    onCheckedChange = { viewModel.toggleProfileAccessMethod(method.id) },
-                                    colors = CheckboxDefaults.colors(
-                                        checkedColor = Beacon500,
-                                        checkmarkColor = OnAccentColor
-                                    ),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Subsection 6: Preferred Neighborhood Anchor
-                    Text(
-                        "PREFERRED NEIGHBORHOOD ANCHOR (+35 score boost)",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Beacon400,
-                        letterSpacing = 0.8.sp
-                    )
-                    Text(
-                        "Boost resources located in your regular neighborhood or area of interest.",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val activeNeighborhood = profile.preferredNeighborhood
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    ) {
-                        val isNone = activeNeighborhood.isBlank()
-                        FilterChip(
-                            selected = isNone,
-                            onClick = { viewModel.setProfilePreferredNeighborhood("") },
-                            label = {
-                                Text(
-                                    "🌐 All SF (No Anchor)",
-                                    fontSize = 11.sp,
-                                    color = if (isNone) Ink950 else Mist200
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = Beacon500,
-                                containerColor = Ink800
-                            ),
-                            border = FilterChipDefaults.filterChipBorder(
-                                borderColor = if (isNone) Beacon500 else Ink700,
-                                enabled = true,
-                                selected = isNone
-                            ),
-                            modifier = Modifier.testTag("profile_neighborhood_none")
-                        )
-
-                        ProfileConstants.NEIGHBORHOODS.forEach { nh ->
-                            val isSelected = activeNeighborhood.equals(nh, ignoreCase = true)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = {
-                                    if (isSelected) viewModel.setProfilePreferredNeighborhood("")
-                                    else viewModel.setProfilePreferredNeighborhood(nh)
-                                },
-                                label = {
-                                    Text(
-                                        nh,
-                                        fontSize = 11.sp,
-                                        color = if (isSelected) Ink950 else Mist200
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Beacon500,
-                                    containerColor = Ink800
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    borderColor = if (isSelected) Beacon500 else Ink700,
-                                    enabled = true,
-                                    selected = isSelected
-                                ),
-                                modifier = Modifier.testTag("profile_neighborhood_${nh.lowercase().replace(" ", "_")}")
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Subsection 7: Preferred Languages
-                    Text(
-                        "PREFERRED LANGUAGES (+25 score boost)",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Beacon400,
-                        letterSpacing = 0.8.sp
-                    )
-                    Text(
-                        "Prioritize providers offering translation, staff fluency, or multilingual materials.",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    ) {
-                        ProfileConstants.LANGUAGES.forEach { lang ->
-                            val isSelected = profile.preferredLanguages.contains(lang)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.toggleProfileLanguage(lang) },
-                                label = {
-                                    Text(
-                                        lang,
-                                        fontSize = 11.sp,
-                                        color = if (isSelected) Ink950 else Mist200
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Beacon500,
-                                    containerColor = Ink800
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    borderColor = if (isSelected) Beacon500 else Ink700,
-                                    enabled = true,
-                                    selected = isSelected
-                                ),
-                                modifier = Modifier.testTag("profile_language_${lang.lowercase()}")
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Action Buttons
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = { showResetDialog = true },
-                            enabled = !profile.isEmpty,
-                            border = BorderStroke(1.dp, if (!profile.isEmpty) Rose500.copy(alpha = 0.6f) else Ink700),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = Rose500,
-                                disabledContentColor = Mist400.copy(alpha = 0.4f)
-                            ),
-                            modifier = Modifier.testTag("profile_reset_button")
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Reset Profile", fontSize = 12.sp)
-                        }
-
-                        if (!profile.isEmpty) {
-                            Text(
-                                "Profile Active (${profile.activePreferenceCount})",
-                                fontSize = 11.5.sp,
-                                color = Beacon400,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Text("Secondary Action", fontSize = 11.sp)
                         }
                     }
                 }
             }
         }
 
-        // Section 1: Navigation & Workspace Configuration
+        // Atmosphere / Theme Modes
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_navigation")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 1", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Navigation & Workspace",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text(
-                        "Configure default startup destination, customize bottom navigation shortcuts, and set default neighborhood anchor",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection A: Startup Screen Destination
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Home,
-                            contentDescription = null,
-                            tint = Beacon500,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            "Default Startup Screen",
-                            fontWeight = FontWeight.Bold,
-                            color = Mist100,
-                            fontSize = 14.sp
-                        )
-                    }
-                    Text(
-                        "Select which screen automatically opens when starting Compass SF",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val startupOptions = listOf(
-                        Triple("now", "Now — Today's Navigator", "Daily meal times, urgent shelters & open rest stops"),
-                        Triple("find", "Find — Directory Search", "Directory categories, tags & keyword search"),
-                        Triple("map", "Map — Fullscreen City Map", "Interactive map with pins, GPS tracker & transit routes"),
-                        Triple("day", "Day — My Day Checklist", "Personal schedule, visits & daily tasks"),
-                        Triple("ask", "Ask — AI Street Navigator", "AI guide for emergency & street resources"),
-                        Triple("ebt", "EBT — Restaurant Meals", "CalFresh EBT restaurant hot meals across SF")
-                    )
-
-                    val activeStartup = viewModel.startupScreenRoute.value
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        startupOptions.forEach { (route, title, desc) ->
-                            val isSelected = activeStartup == route
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Ink800 else Color.Transparent)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Beacon500.copy(alpha = 0.6f) else Ink800,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { viewModel.setStartupScreen(route) }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    val icon = when (route) {
-                                        "now" -> Icons.Default.Explore
-                                        "find" -> Icons.Default.Search
-                                        "map" -> Icons.Default.Map
-                                        "day" -> Icons.Default.Checklist
-                                        "ask" -> Icons.Default.AutoAwesome
-                                        "ebt" -> Icons.Default.CreditCard
-                                        else -> Icons.Default.Home
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .background(
-                                                if (isSelected) Beacon500.copy(alpha = 0.2f) else Ink800,
-                                                CircleShape
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            icon,
-                                            contentDescription = null,
-                                            tint = if (isSelected) Beacon400 else Mist400,
-                                            modifier = Modifier.size(15.dp)
-                                        )
-                                    }
-                                    Column {
-                                        Text(
-                                            title,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) Beacon400 else Mist100,
-                                            fontSize = 13.sp
-                                        )
-                                        Text(
-                                            desc,
-                                            fontSize = 10.5.sp,
-                                            color = Mist400,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = { viewModel.setStartupScreen(route) },
-                                    colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection B: Bottom Navigation Bar Customization
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Tune,
-                                contentDescription = null,
-                                tint = Beacon500,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                "Bottom Navigation Bar",
-                                fontWeight = FontWeight.Bold,
-                                color = Mist100,
-                                fontSize = 14.sp
-                            )
-                        }
-                        val navCount = viewModel.bottomNavItems.value.size
-                        Box(
-                            modifier = Modifier
-                                .background(Ink800, RoundedCornerShape(10.dp))
-                                .border(1.dp, Ink700, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 8.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                "$navCount / 6 active",
-                                color = Beacon400,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                    }
-                    Text(
-                        "Toggle shortcuts to display on the persistent bottom navigation bar (min 2, max 6). Use the arrows to reorder tabs.",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Live Bottom Bar Order Strip
-                    Text(
-                        "CURRENT BAR ORDER (TAP ARROWS TO REORDER):",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Mist400,
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    val activeNavs = viewModel.bottomNavItems.value
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink950, RoundedCornerShape(8.dp))
-                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        activeNavs.forEachIndexed { index, route ->
-                            val (title, icon) = when (route) {
-                                "now" -> "Now (Navigator)" to Icons.Default.Explore
-                                "find" -> "Find (Directory)" to Icons.Default.Search
-                                "map" -> "Map (City Map)" to Icons.Default.Map
-                                "ask" -> "Ask (AI Guide)" to Icons.Default.AutoAwesome
-                                "day" -> "Day (Checklist)" to Icons.Default.Checklist
-                                "ebt" -> "EBT (Meals)" to Icons.Default.CreditCard
-                                "info" -> "Info (City Hotlines)" to Icons.Default.Info
-                                "add" -> "Add (Resource)" to Icons.Default.Add
-                                else -> route.replaceFirstChar { it.uppercase() } to Icons.Default.Explore
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Ink800, RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(20.dp)
-                                            .background(Beacon500.copy(alpha = 0.2f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            "${index + 1}",
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = Beacon400
-                                        )
-                                    }
-                                    Icon(icon, contentDescription = null, tint = Beacon500, modifier = Modifier.size(16.dp))
-                                    Text(title, color = Mist100, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    IconButton(
-                                        onClick = { viewModel.moveBottomNavItem(route, -1) },
-                                        enabled = index > 0,
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.ArrowBack,
-                                            contentDescription = "Move Left/Up",
-                                            tint = if (index > 0) Mist100 else Ink700,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = { viewModel.moveBottomNavItem(route, 1) },
-                                        enabled = index < activeNavs.size - 1,
-                                        modifier = Modifier.size(28.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.ArrowForward,
-                                            contentDescription = "Move Right/Down",
-                                            tint = if (index < activeNavs.size - 1) Mist100 else Ink700,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Available Tabs Toggles
-                    Text(
-                        "AVAILABLE TAB SHORTCUTS:",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Black,
-                        color = Mist400,
-                        letterSpacing = 0.5.sp
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    val allAvailableShortcuts = listOf(
-                        "now" to ("Now" to Icons.Default.Explore),
-                        "find" to ("Find" to Icons.Default.Search),
-                        "map" to ("Map" to Icons.Default.Map),
-                        "ask" to ("Ask AI" to Icons.Default.AutoAwesome),
-                        "day" to ("Day" to Icons.Default.Checklist),
-                        "ebt" to ("EBT" to Icons.Default.CreditCard),
-                        "info" to ("Info" to Icons.Default.Info),
-                        "add" to ("Add" to Icons.Default.Add)
-                    )
-
-                    // Render as a 2-column grid of toggle chips
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for (i in allAvailableShortcuts.indices step 2) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                val item1 = allAvailableShortcuts[i]
-                                val isActive1 = activeNavs.contains(item1.first)
-                                Box(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isActive1) Beacon500.copy(alpha = 0.15f) else Ink800)
-                                        .border(
-                                            1.dp,
-                                            if (isActive1) Beacon500.copy(alpha = 0.6f) else Ink700,
-                                            RoundedCornerShape(8.dp)
-                                        )
-                                        .clickable { viewModel.toggleBottomNavItem(item1.first) }
-                                        .padding(horizontal = 8.dp, vertical = 8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                item1.second.second,
-                                                contentDescription = null,
-                                                tint = if (isActive1) Beacon400 else Mist400,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                item1.second.first,
-                                                color = if (isActive1) Mist100 else Mist400,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (isActive1) FontWeight.Bold else FontWeight.Normal
-                                            )
-                                        }
-                                        Checkbox(
-                                            checked = isActive1,
-                                            onCheckedChange = { viewModel.toggleBottomNavItem(item1.first) },
-                                            colors = CheckboxDefaults.colors(
-                                                checkedColor = Beacon500,
-                                                checkmarkColor = OnAccentColor
-                                            ),
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-
-                                if (i + 1 < allAvailableShortcuts.size) {
-                                    val item2 = allAvailableShortcuts[i + 1]
-                                    val isActive2 = activeNavs.contains(item2.first)
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (isActive2) Beacon500.copy(alpha = 0.15f) else Ink800)
-                                            .border(
-                                                1.dp,
-                                                if (isActive2) Beacon500.copy(alpha = 0.6f) else Ink700,
-                                                RoundedCornerShape(8.dp)
-                                            )
-                                            .clickable { viewModel.toggleBottomNavItem(item2.first) }
-                                            .padding(horizontal = 8.dp, vertical = 8.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                            ) {
-                                                Icon(
-                                                    item2.second.second,
-                                                    contentDescription = null,
-                                                    tint = if (isActive2) Beacon400 else Mist400,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Text(
-                                                    item2.second.first,
-                                                    color = if (isActive2) Mist100 else Mist400,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = if (isActive2) FontWeight.Bold else FontWeight.Normal
-                                                )
-                                            }
-                                            Checkbox(
-                                                checked = isActive2,
-                                                onCheckedChange = { viewModel.toggleBottomNavItem(item2.first) },
-                                                colors = CheckboxDefaults.colors(
-                                                    checkedColor = Beacon500,
-                                                    checkmarkColor = OnAccentColor
-                                                ),
-                                                modifier = Modifier.size(20.dp)
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection C: Persistent Default Neighborhood Anchor
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Place,
-                            contentDescription = null,
-                            tint = Beacon500,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            "Default Neighborhood Anchor",
-                            fontWeight = FontWeight.Bold,
-                            color = Mist100,
-                            fontSize = 14.sp
-                        )
-                    }
-                    Text(
-                        "Set the home anchor used for distance calculations, walking estimates, and nearby service sorting when GPS is unavailable",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    val activeAnchorId = viewModel.defaultNeighborhoodAnchorId.value
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        LocationHelper.NEIGHBORHOOD_ANCHORS.forEach { anchor ->
-                            val isSelected = activeAnchorId == anchor.id
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Ink800 else Color.Transparent)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Beacon500.copy(alpha = 0.6f) else Ink800,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable {
-                                        viewModel.setDefaultNeighborhoodAnchor(anchor.id)
-                                    }
-                                    .padding(horizontal = 10.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(26.dp)
-                                            .background(
-                                                if (isSelected) Beacon500.copy(alpha = 0.2f) else Ink800,
-                                                CircleShape
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            Icons.Default.LocationOn,
-                                            contentDescription = null,
-                                            tint = if (isSelected) Beacon400 else Mist400,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                    Column {
-                                        Text(
-                                            anchor.name,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                            color = if (isSelected) Beacon400 else Mist100,
-                                            fontSize = 13.sp
-                                        )
-                                        Text(
-                                            anchor.subtitle,
-                                            fontSize = 10.5.sp,
-                                            color = Mist400,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = { viewModel.setDefaultNeighborhoodAnchor(anchor.id) },
-                                    colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Reset Navigation Defaults Button
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.resetWorkspaceNavigationToDefaults()
-                            Toast.makeText(context, "Navigation & workspace reset to defaults", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        border = BorderStroke(1.dp, Ink700),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon400)
-                    ) {
-                        Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Reset Navigation & Workspace to Defaults", fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-
-        // Section 2: Search, Accessibility & Demographic Presets
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_filters")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 2", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Filters & Presets",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text(
-                        "Set global demographic, accessibility, and dietary preferences for the directory and map.",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Physical Accessibility
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text("Accessibility & Mobility", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
-                            Text("Filter for wheelchair-accessible entrances and step-free navigation.", fontSize = 11.sp, color = Mist400)
-                        }
-                        Switch(
-                            checked = viewModel.accessibilityMobilityMode.value,
-                            onCheckedChange = { viewModel.toggleAccessibilityMobilityMode(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Exclude Phone Lines & Non-Location Resources
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text("Exclude Help Lines & Non-Location Resources", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
-                            Text("Hide phone lines, hotlines, and non-physical location services from Now & Find search results to focus exclusively on walk-in places.", fontSize = 11.sp, color = Mist400)
-                        }
-                        Switch(
-                            checked = viewModel.excludeNonLocationResources.value,
-                            onCheckedChange = { viewModel.toggleExcludeNonLocationResources(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Demographics
-                    Text("Demographic Focus", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
-                    Text("Select target population groups to highlight relevant services.", fontSize = 11.sp, color = Mist400)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    
-                    val activeDemos = viewModel.demographicPresets.value
-                    val demoPresets = DemographicPreset.entries
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        for (i in demoPresets.indices step 2) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                for (j in 0..1) {
-                                    if (i + j < demoPresets.size) {
-                                        val preset = demoPresets[i + j]
-                                        val isSelected = activeDemos.contains(preset)
-                                        FilterChip(
-                                            selected = isSelected,
-                                            onClick = { viewModel.toggleDemographicPreset(preset) },
-                                            label = { Text("${preset.icon} ${preset.title}", fontSize = 11.sp, color = if (isSelected) Ink950 else Mist200) },
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = Beacon500,
-                                                containerColor = Ink800
-                                            ),
-                                            border = FilterChipDefaults.filterChipBorder(
-                                                borderColor = if (isSelected) Beacon500 else Ink700,
-                                                enabled = true, selected = isSelected
-                                            ),
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                    } else {
-                                        Spacer(modifier = Modifier.weight(1f))
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Dietary
-                    Text("Dietary Preferences", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
-                    Text("Filter EBT locations and free dining services.", fontSize = 11.sp, color = Mist400)
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val activeDietary = viewModel.dietaryPresets.value
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    ) {
-                        DietaryPreset.entries.forEach { preset ->
-                            val isSelected = activeDietary.contains(preset)
-                            FilterChip(
-                                selected = isSelected,
-                                onClick = { viewModel.toggleDietaryPreset(preset) },
-                                label = { Text("${preset.icon} ${preset.title}", fontSize = 11.sp, color = if (isSelected) Ink950 else Mist200) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = Beacon500,
-                                    containerColor = Ink800
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    borderColor = if (isSelected) Beacon500 else Ink700,
-                                    enabled = true, selected = isSelected
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section: AI Street Navigator & Gemini Customization
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_ai_navigator")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("AI NAVIGATOR", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Gemini Street AI",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text(
-                        "Configure AI response depth, toggle offline heuristics mode, or specify custom Gemini API keys and endpoints",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection A: Response Style & Depth
-                    Text("RESPONSE STYLE & DEPTH", fontWeight = FontWeight.Black, fontSize = 11.sp, color = Beacon500, letterSpacing = 0.8.sp)
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AiNavigatorStyle.entries.forEach { styleOption ->
-                            val isSelected = viewModel.aiNavigatorStyle.value == styleOption
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Ink800 else Ink950)
-                                    .border(
-                                        if (isSelected) 1.5.dp else 1.dp,
-                                        if (isSelected) Beacon500 else Ink700,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { viewModel.setAiNavigatorStyle(styleOption) }
-                                    .padding(12.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Text(
-                                                styleOption.title,
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = 14.sp,
-                                                color = if (isSelected) Beacon500 else Mist100
-                                            )
-                                            Box(
-                                                modifier = Modifier
-                                                    .background(if (isSelected) Beacon500.copy(alpha = 0.2f) else Ink800, RoundedCornerShape(4.dp))
-                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                                            ) {
-                                                Text(
-                                                    styleOption.badge,
-                                                    fontSize = 10.sp,
-                                                    color = if (isSelected) Beacon400 else Mist400,
-                                                    fontWeight = FontWeight.Bold
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(3.dp))
-                                        Text(
-                                            styleOption.description,
-                                            fontSize = 12.sp,
-                                            color = Mist400,
-                                            lineHeight = 16.sp
-                                        )
-                                    }
-                                    RadioButton(
-                                        selected = isSelected,
-                                        onClick = { viewModel.setAiNavigatorStyle(styleOption) },
-                                        colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection B: Offline-Only Heuristics Mode
-                    Text("OFFLINE ENGINE", fontWeight = FontWeight.Black, fontSize = 11.sp, color = Beacon500, letterSpacing = 0.8.sp)
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = Ink950),
-                        border = BorderStroke(1.dp, Ink700),
-                        shape = RoundedCornerShape(8.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Force Offline Heuristics", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
-                                    Text(
-                                        "Bypass all network calls to Gemini. Uses 100% on-device tag & distance matching to save mobile data and work with zero cell reception.",
-                                        fontSize = 11.sp,
-                                        color = Mist400
-                                    )
-                                }
-                                Switch(
-                                    checked = viewModel.aiOfflineOnly.value,
-                                    onCheckedChange = { viewModel.setAiOfflineOnly(it) },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = Ink950,
-                                        checkedTrackColor = Beacon500
-                                    ),
-                                    modifier = Modifier.testTag("ai_offline_switch")
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(if (viewModel.aiOfflineOnly.value) Color(0xFF854D0E).copy(alpha = 0.35f) else Emerald500.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
-                                    .border(1.dp, if (viewModel.aiOfflineOnly.value) Color(0xFFFACC15) else Emerald500.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 10.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    if (viewModel.aiOfflineOnly.value) "🟡 100% Local On-Device Mode Active" else "🟢 Gemini 2.5 Flash Online Mode Active",
-                                    color = if (viewModel.aiOfflineOnly.value) Color(0xFFFDE047) else Emerald500,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection C: Custom Gemini Credentials & Endpoint
-                    Text("API CREDENTIALS & ENDPOINT", fontWeight = FontWeight.Black, fontSize = 11.sp, color = Beacon500, letterSpacing = 0.8.sp)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        "By default, Compass SF uses the pre-configured Gemini API key. Caseworkers or developers may enter their own key or custom proxy endpoint below.",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    var customKeyInput by remember(viewModel.aiCustomApiKey.value) { mutableStateOf(viewModel.aiCustomApiKey.value) }
-                    var customEndpointInput by remember(viewModel.aiCustomEndpoint.value) { mutableStateOf(viewModel.aiCustomEndpoint.value) }
-                    var showKeyPassword by remember { mutableStateOf(false) }
-
-                    OutlinedTextField(
-                        value = customKeyInput,
-                        onValueChange = {
-                            customKeyInput = it
-                            viewModel.setAiCustomApiKey(it)
-                        },
-                        label = { Text("Custom Gemini API Key", fontSize = 12.sp, color = Mist400) },
-                        placeholder = { Text("AIzaSy...", color = Mist400, fontSize = 12.sp) },
-                        singleLine = true,
-                        visualTransformation = if (showKeyPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                        trailingIcon = {
-                            IconButton(onClick = { showKeyPassword = !showKeyPassword }) {
-                                Icon(
-                                    imageVector = if (showKeyPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = "Toggle password visibility",
-                                    tint = Mist400,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("ai_custom_api_key_input"),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Beacon500,
-                            unfocusedBorderColor = Ink700,
-                            focusedTextColor = Mist100,
-                            unfocusedTextColor = Mist100
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    OutlinedTextField(
-                        value = customEndpointInput,
-                        onValueChange = {
-                            customEndpointInput = it
-                            viewModel.setAiCustomEndpoint(it)
-                        },
-                        label = { Text("Custom Base URL Endpoint (optional)", fontSize = 12.sp, color = Mist400) },
-                        placeholder = { Text("https://generativelanguage.googleapis.com/", color = Mist400, fontSize = 12.sp) },
-                        singleLine = true,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("ai_custom_endpoint_input"),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Beacon500,
-                            unfocusedBorderColor = Ink700,
-                            focusedTextColor = Mist100,
-                            unfocusedTextColor = Mist100
-                        ),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { viewModel.testAiConnection() },
-                            enabled = !viewModel.isTestingAiConnection.value,
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 44.dp)
-                                .testTag("test_ai_connection_button"),
-                            colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950)
-                        ) {
-                            if (viewModel.isTestingAiConnection.value) {
-                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Ink950, strokeWidth = 2.dp)
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Testing...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            } else {
-                                Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Test Connection", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.resetAiSettings()
-                                customKeyInput = ""
-                                customEndpointInput = ""
-                                Toast.makeText(context, "AI settings restored to defaults", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 44.dp)
-                                .testTag("reset_ai_settings_button"),
-                            border = BorderStroke(1.dp, Ink700),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, tint = Beacon400, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Reset Defaults", fontSize = 12.sp)
-                        }
-                    }
-
-                    if (viewModel.aiConnectionStatus.value != null) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        val status = viewModel.aiConnectionStatus.value.orEmpty()
-                        val isSuccess = status.startsWith("✅")
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    if (isSuccess) Emerald500.copy(alpha = 0.15f) else Color(0xFF7F1D1D).copy(alpha = 0.35f),
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .border(
-                                    1.dp,
-                                    if (isSuccess) Emerald500 else Rose500,
-                                    RoundedCornerShape(8.dp)
-                                )
-                                .padding(10.dp)
-                        ) {
-                            Text(
-                                status,
-                                color = if (isSuccess) Emerald500 else Color(0xFFFCA5A5),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section 3: Atmosphere & Theme Modes
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                border = BorderStroke(1.dp, Ink700),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 3", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Theme Atmosphere",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text(
-                        "Select background tone and street lighting mode",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
+                    Text("Atmosphere & Theme Mode", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Text("Select UI theme tone", color = Mist400, fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(12.dp))
 
                     AppThemeMode.entries.forEach { mode ->
                         val isSelected = activeMode == mode
-                        val previewColors = resolveCompassColors(mode, activeAccent, highContrast, compactListing)
-
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(if (isSelected) Ink800 else Color.Transparent)
+                                .background(if (isSelected) Beacon500.copy(alpha = 0.18f) else Ink800)
+                                .border(1.dp, if (isSelected) Beacon500 else Ink700, RoundedCornerShape(8.dp))
                                 .clickable { viewModel.selectThemeMode(mode) }
-                                .padding(horizontal = 8.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                // Color swatches preview
-                                Row(
-                                    modifier = Modifier
-                                        .background(previewColors.background, RoundedCornerShape(6.dp))
-                                        .border(1.dp, previewColors.border, RoundedCornerShape(6.dp))
-                                        .padding(4.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .background(previewColors.surface, CircleShape)
-                                            .border(0.5.dp, previewColors.border, CircleShape)
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .background(previewColors.accent, CircleShape)
-                                    )
-                                    Box(
-                                        modifier = Modifier
-                                            .size(14.dp)
-                                            .background(previewColors.textPrimary, CircleShape)
-                                    )
-                                }
-
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { viewModel.selectThemeMode(mode) },
+                                    colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                                )
                                 Column {
-                                    Text(
-                                        mode.displayName,
-                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) Beacon400 else Mist100,
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        mode.subtitle,
-                                        fontSize = 11.sp,
-                                        color = Mist400
-                                    )
+                                    Text(mode.displayName, fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                                    Text(mode.subtitle, color = Mist400, fontSize = 11.sp)
                                 }
                             }
-
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { viewModel.selectThemeMode(mode) },
-                                colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
-                            )
                         }
+                        Spacer(modifier = Modifier.height(6.dp))
                     }
                 }
             }
         }
 
-        // Section 4: Accent Highlight Color
+        // Highlight Accent Colors
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                border = BorderStroke(1.dp, Ink700),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    Text("Highlight Accent Colors", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Text("Choose highlight color for buttons, badges, & indicators", color = Mist400, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    AppAccentColor.entries.forEach { accent ->
+                        val isSelected = activeAccent == accent
                         Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Beacon500.copy(alpha = 0.18f) else Ink800)
+                                .border(1.dp, if (isSelected) Beacon500 else Ink700, RoundedCornerShape(8.dp))
+                                .clickable { viewModel.selectAccentColor(accent) }
+                                .padding(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 4", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Compass Accent Color",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text(
-                        "Primary color for action buttons, active navigation, and priority badges",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AppAccentColor.entries.forEach { accent ->
-                            val isSelected = activeAccent == accent
-                            val subtitle = when (accent) {
-                                AppAccentColor.BEACON -> "Warm golden beacon illumination"
-                                AppAccentColor.GOLDEN_GATE -> "Iconic bridge international orange"
-                                AppAccentColor.PACIFIC_EMERALD -> "Vibrant coastal marine green"
-                                AppAccentColor.OCEAN_CYAN -> "Cool Pacific blue & high clarity"
-                                AppAccentColor.MISSION_PURPLE -> "Rich Mission district twilight violet"
-                            }
-
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Ink800 else Color.Transparent)
-                                    .clickable { viewModel.selectAccentColor(accent) }
-                                    .padding(horizontal = 8.dp, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(24.dp)
-                                            .background(accent.primary, CircleShape)
-                                            .border(
-                                                if (isSelected) 2.dp else 1.dp,
-                                                if (isSelected) Mist100 else Color.Transparent,
-                                                CircleShape
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        if (isSelected) {
-                                            Text(
-                                                "✓",
-                                                color = if (accent == AppAccentColor.BEACON) Color.Black else Color.White,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Black
-                                            )
-                                        }
-                                    }
-
-                                    Column {
-                                        Text(
-                                            accent.displayName,
-                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSelected) accent.primary else Mist100,
-                                            fontSize = 14.sp
-                                        )
-                                        Text(
-                                            subtitle,
-                                            fontSize = 11.sp,
-                                            color = Mist400
-                                        )
-                                    }
-                                }
-
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 RadioButton(
                                     selected = isSelected,
                                     onClick = { viewModel.selectAccentColor(accent) },
-                                    colors = RadioButtonDefaults.colors(selectedColor = accent.primary)
+                                    colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
                                 )
+                                Text(accent.displayName, fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
                             }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .background(accent.primary, CircleShape)
+                                    .border(1.dp, Mist100.copy(alpha = 0.5f), CircleShape)
+                            )
                         }
+                        Spacer(modifier = Modifier.height(6.dp))
                     }
                 }
             }
         }
 
-        // Section 4: Text Scaling & Readability
+        // Text Scale
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                border = BorderStroke(1.dp, Ink700),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 5", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Text Scaling & Readability",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text(
-                        "Enlarge text for walking outdoors, direct sunlight, or easier scanning",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
+                    Text("Text Scale & Readability", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Text("Adjust font size for street legibility", color = Mist400, fontSize = 12.sp)
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         AppFontScale.entries.forEach { scale ->
                             val isSelected = activeFontScale == scale
@@ -5557,618 +3828,172 @@ fun SettingsScreen(
                                     .weight(1f)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(if (isSelected) Beacon500 else Ink800)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Beacon400 else Ink700,
-                                        RoundedCornerShape(8.dp)
-                                    )
+                                    .border(1.dp, if (isSelected) Beacon500 else Ink700, RoundedCornerShape(8.dp))
                                     .clickable { viewModel.selectFontScale(scale) }
-                                    .padding(vertical = 12.dp, horizontal = 4.dp),
+                                    .padding(vertical = 10.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        scale.displayName,
-                                        color = if (isSelected) OnAccentColor else Mist100,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        "${(scale.scaleFactor * 100).toInt()}%",
-                                        color = if (isSelected) OnAccentColor.copy(alpha = 0.8f) else Mist400,
-                                        fontSize = 10.sp
-                                    )
-                                }
+                                Text(
+                                    scale.displayName,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = if (isSelected) OnAccentColor else Mist100
+                                )
                             }
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink800, RoundedCornerShape(6.dp))
-                            .padding(10.dp)
-                    ) {
-                        Text(
-                            "Preview: St. Anthony's Dining Room • Open 10:00 AM – 1:30 PM",
-                            color = Mist100,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
                     }
                 }
             }
         }
 
-        // Section 5: Street Display & Contrast Configurations
+        // Display Density & High Contrast
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                border = BorderStroke(1.dp, Ink700),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 6", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Street Display Configuration",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text(
-                        "Fine-tune accessibility and layout density",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Text("Display Density & Contrast", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                    // High Contrast Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text(
-                                "High-Contrast Outlines",
-                                fontWeight = FontWeight.Bold,
-                                color = Mist100,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                "Sharpen card edges and borders for bright daylight reflection",
-                                fontSize = 11.sp,
-                                color = Mist400
-                            )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("High Contrast Mode", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Enforce strong borders & high-visibility text", color = Mist400, fontSize = 11.sp)
                         }
                         Switch(
                             checked = highContrast,
                             onCheckedChange = { viewModel.toggleHighContrast(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            )
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp), color = Ink800)
 
-                    // Compact Listing Density Toggle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                            Text(
-                                "Compact Card Density",
-                                fontWeight = FontWeight.Bold,
-                                color = Mist100,
-                                fontSize = 14.sp
-                            )
-                            Text(
-                                "Condense cards to see more services per screen without scrolling",
-                                fontSize = 11.sp,
-                                color = Mist400
-                            )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Compact Directory Cards", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Show more listings per screen height", color = Mist400, fontSize = 11.sp)
                         }
                         Switch(
                             checked = compactListing,
                             onCheckedChange = { viewModel.toggleCompactListing(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            )
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
                         )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Reset Appearance Defaults Button
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.resetThemingToDefaults()
-                            Toast.makeText(context, "Theme reset to defaults", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        border = BorderStroke(1.dp, Ink700),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon400)
-                    ) {
-                        Text("Reset Appearance to Defaults", fontSize = 12.sp)
                     }
                 }
             }
         }
 
-        // Section 7: Map & Cartography Controls (Chunk 2)
+        // App Launcher Icon Branding
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_map")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 7", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text(
-                                "Map & Cartography",
-                                fontWeight = FontWeight.Bold,
-                                color = Beacon500,
-                                fontSize = 16.sp
-                            )
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text(
-                        "Configure map vector layers, marker clustering distance, and battery saver radar mode",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection A: Map Vector Layers
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Layers,
-                            contentDescription = null,
-                            tint = Beacon500,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            "Map Vector Layers",
-                            fontWeight = FontWeight.Bold,
-                            color = Mist100,
-                            fontSize = 14.sp
-                        )
-                    }
-                    Text(
-                        "Toggle cartographic elements and transit overlays rendered on the canvas",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    val mapTransit by viewModel.mapLayerTransit
-                    val mapNeighborhoods by viewModel.mapLayerNeighborhoods
-                    val mapLandmarks by viewModel.mapLayerLandmarks
-
-                    // 1. Transit Lines & Stops Toggle
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (mapTransit) Beacon500.copy(alpha = 0.08f) else Ink800)
-                            .border(1.dp, if (mapTransit) Beacon500.copy(alpha = 0.4f) else Ink700, RoundedCornerShape(8.dp))
-                            .clickable { viewModel.toggleMapLayerTransit(!mapTransit) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .background(Color(0xFF0099D8).copy(alpha = 0.2f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.DirectionsTransit,
-                                    contentDescription = null,
-                                    tint = Color(0xFF38BDF8),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    "Transit Lines & Subway",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Mist100,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    "BART tunnels, Muni Metro light rail routes, and station nodes",
-                                    fontSize = 10.5.sp,
-                                    color = Mist400
-                                )
-                            }
-                        }
-                        Switch(
-                            checked = mapTransit,
-                            onCheckedChange = { viewModel.toggleMapLayerTransit(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // 2. Neighborhood Boundary Outlines Toggle
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (mapNeighborhoods) Beacon500.copy(alpha = 0.08f) else Ink800)
-                            .border(1.dp, if (mapNeighborhoods) Beacon500.copy(alpha = 0.4f) else Ink700, RoundedCornerShape(8.dp))
-                            .clickable { viewModel.toggleMapLayerNeighborhoods(!mapNeighborhoods) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .background(Color(0xFFF59E0B).copy(alpha = 0.2f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.Map,
-                                    contentDescription = null,
-                                    tint = Color(0xFFF59E0B),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    "Neighborhood Boundaries",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Mist100,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    "Outlined zones & labels for Tenderloin, SoMa, Mission & more",
-                                    fontSize = 10.5.sp,
-                                    color = Mist400
-                                )
-                            }
-                        }
-                        Switch(
-                            checked = mapNeighborhoods,
-                            onCheckedChange = { viewModel.toggleMapLayerNeighborhoods(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    // 3. Street Names & Landmark Badges Toggle
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (mapLandmarks) Beacon500.copy(alpha = 0.08f) else Ink800)
-                            .border(1.dp, if (mapLandmarks) Beacon500.copy(alpha = 0.4f) else Ink700, RoundedCornerShape(8.dp))
-                            .clickable { viewModel.toggleMapLayerLandmarks(!mapLandmarks) }
-                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .background(Color(0xFF10B981).copy(alpha = 0.2f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.LocationCity,
-                                    contentDescription = null,
-                                    tint = Color(0xFF34D399),
-                                    modifier = Modifier.size(15.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    "Street Names & Landmarks",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Mist100,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    "SF landmark badges (City Hall, Ferry Bldg) and street corridors",
-                                    fontSize = 10.5.sp,
-                                    color = Mist400
-                                )
-                            }
-                        }
-                        Switch(
-                            checked = mapLandmarks,
-                            onCheckedChange = { viewModel.toggleMapLayerLandmarks(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection B: Marker Clustering Density
-                    val activeClustering by viewModel.mapClusteringMode
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Grain,
-                            contentDescription = null,
-                            tint = Beacon500,
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            "Marker Clustering Density",
-                            fontWeight = FontWeight.Bold,
-                            color = Mist100,
-                            fontSize = 14.sp
-                        )
-                    }
-                    Text(
-                        "Controls how closely grouped map pins merge into numbered cluster bubbles",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        MapClusteringMode.entries.forEach { mode ->
-                            val isSelected = activeClustering == mode
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Beacon500 else Ink800)
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Beacon400 else Ink700,
-                                        RoundedCornerShape(8.dp)
-                                    )
-                                    .clickable { viewModel.selectMapClusteringMode(mode) }
-                                    .padding(vertical = 10.dp, horizontal = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        mode.displayName,
-                                        color = if (isSelected) OnAccentColor else Mist100,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 12.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        mode.subtitle,
-                                        color = if (isSelected) OnAccentColor.copy(alpha = 0.85f) else Mist400,
-                                        fontSize = 10.sp
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-                    HorizontalDivider(color = Ink800)
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Subsection C: Performance & Battery Saver Mode
-                    val mapReducedMotion by viewModel.mapReducedMotion
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f).padding(end = 8.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .background(if (mapReducedMotion) Emerald500.copy(alpha = 0.2f) else Ink800, CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Default.BatterySaver,
-                                    contentDescription = null,
-                                    tint = if (mapReducedMotion) Emerald500 else Mist400,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    "Battery Saver / Reduced Motion",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Mist100,
-                                    fontSize = 13.sp
-                                )
-                                Text(
-                                    "Disables continuous GPS radar pulse waves and simplifies rendering to save battery outdoors",
-                                    fontSize = 11.sp,
-                                    color = Mist400
-                                )
-                            }
-                        }
-                        Switch(
-                            checked = mapReducedMotion,
-                            onCheckedChange = { viewModel.toggleMapReducedMotion(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = OnAccentColor,
-                                checkedTrackColor = Beacon500
-                            )
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Reset Map Defaults Button
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.resetMapSettingsToDefaults()
-                            Toast.makeText(context, "Map & cartography settings reset to defaults", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        border = BorderStroke(1.dp, Ink700),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon400)
-                    ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Reset Map Settings to Defaults", fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-
-        // Section 7: Launcher Identity Style
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                border = BorderStroke(1.dp, Ink700),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 8", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text("Launcher Identity Style", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Text("Switch launcher shortcut theme & branding badge", fontSize = 12.sp, color = Mist400)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    
-                    iconChoices.forEach { (key, label) ->
-                        val isSelected = viewModel.currentAppIconKey.value == key
+                    Text("Custom App Launcher Branding", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Text("Select your preferred icon aesthetic", color = Mist400, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    iconChoices.forEach { (key, name) ->
+                        val isSelected = activeAppIcon == key
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Beacon500.copy(alpha = 0.18f) else Ink800)
+                                .border(1.dp, if (isSelected) Beacon500 else Ink700, RoundedCornerShape(8.dp))
                                 .clickable { viewModel.selectAppIcon(key) }
-                                .padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                label,
-                                color = if (isSelected) Beacon400 else Mist100,
-                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                                fontSize = 14.sp
-                            )
-                            RadioButton(
-                                selected = isSelected,
-                                onClick = { viewModel.selectAppIcon(key) },
-                                colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = { viewModel.selectAppIcon(key) },
+                                    colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                                )
+                                Text(name, fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                    }
+                }
+            }
+        }
+
+        // Reset
+        item {
+            OutlinedButton(
+                onClick = { viewModel.resetThemingToDefaults() },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon500),
+                border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Reset Appearance Defaults", fontSize = 12.sp)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+// --- Navigator Profile & Presets Sub-Page ---
+@Composable
+fun ProfileSettingsPage(
+    viewModel: CompassViewModel
+) {
+    val demographicPresets = viewModel.demographicPresets.value
+    val mobilityMode = viewModel.accessibilityMobilityMode.value
+    val dietaryPresets = viewModel.dietaryPresets.value
+    val excludeNonLocation = viewModel.excludeNonLocationResources.value
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Demographic Presets", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Text("Highlight services catering to specific populations", color = Mist400, fontSize = 12.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    DemographicPreset.entries.forEach { preset ->
+                        val isSelected = demographicPresets.contains(preset)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { viewModel.toggleDemographicPreset(preset) }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(preset.icon, fontSize = 16.sp)
+                                Text(preset.title, color = Mist100, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = { viewModel.toggleDemographicPreset(preset) },
+                                colors = CheckboxDefaults.colors(checkedColor = Beacon500)
                             )
                         }
                     }
@@ -6176,599 +4001,74 @@ fun SettingsScreen(
             }
         }
 
-        // Section 9: Curated Data Sources & Feeds
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_sources")
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Accessibility & Mobility", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text("Data Sources", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
-                            Box(
-                                modifier = Modifier
-                                    .background(Ink800, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("Multi-Feed", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        "Toggle authoritative civic datasets and community feeds queried across Compass SF maps and directories.",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    val shelterTechCount = remember(resources) {
-                        resources.count { it.source.contains("ShelterTech", ignoreCase = true) || it.source.contains("Service Guide", ignoreCase = true) }
-                    }
-                    val dataSfCount = remember(resources) {
-                        resources.count { it.source.contains("DataSF", ignoreCase = true) || it.source.contains("sf.gov", ignoreCase = true) }
-                    }
-                    val twoOneOneCount = remember(resources) {
-                        resources.count { it.source.contains("211", ignoreCase = true) }
-                    }
-                    val communityCount = remember(resources) {
-                        resources.count { it.source.contains("Community", ignoreCase = true) || it.createdVia != "seed" }
-                    }
-
-                    // ShelterTech Card
-                    DataSourceToggleCard(
-                        title = "ShelterTech / SF Service Guide",
-                        description = "Grassroots civic directory curated by volunteers and advocates for unhoused communities.",
-                        count = shelterTechCount,
-                        badge = "Civic Open Data",
-                        checked = viewModel.sourceShelterTechEnabled.value,
-                        onCheckedChange = { viewModel.toggleDataSource("sheltertech", it) }
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // DataSF Card
-                    DataSourceToggleCard(
-                        title = "DataSF Open Data Registry",
-                        description = "City & County of San Francisco open registry of clinics, food pantries, and shelters.",
-                        count = dataSfCount,
-                        badge = "SF Gov Verified",
-                        checked = viewModel.sourceDataSfEnabled.value,
-                        onCheckedChange = { viewModel.toggleDataSource("datasf", it) }
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // 211 Card
-                    DataSourceToggleCard(
-                        title = "211 Bay Area (Eden I&R)",
-                        description = "Regional health, human services, and crisis hotline directory.",
-                        count = twoOneOneCount,
-                        badge = "Bay Area 2-1-1",
-                        checked = viewModel.source211Enabled.value,
-                        onCheckedChange = { viewModel.toggleDataSource("211", it) }
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Community Submissions Card
-                    DataSourceToggleCard(
-                        title = "Community & Flyer Extractions",
-                        description = "Community submissions, street flyer photo intakes, and user added places.",
-                        count = communityCount,
-                        badge = "Crowdsourced",
-                        checked = viewModel.sourceCommunityEnabled.value,
-                        onCheckedChange = { viewModel.toggleDataSource("community", it) }
-                    )
-
-                    if (!viewModel.sourceShelterTechEnabled.value || !viewModel.sourceDataSfEnabled.value ||
-                        !viewModel.source211Enabled.value || !viewModel.sourceCommunityEnabled.value
-                    ) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = {
-                                viewModel.toggleDataSource("sheltertech", true)
-                                viewModel.toggleDataSource("datasf", true)
-                                viewModel.toggleDataSource("211", true)
-                                viewModel.toggleDataSource("community", true)
-                                Toast.makeText(context, "All data sources enabled", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f)),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon400)
-                        ) {
-                            Icon(Icons.Default.RestartAlt, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Enable All Data Sources", fontSize = 12.sp)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section 10: Ephemeral / Incognito Search & Query Privacy
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_incognito")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 10", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text("Query Privacy", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
-                            Box(
-                                modifier = Modifier
-                                    .background(Ink800, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("Zero Retention", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        "Manage search history privacy and toggle ephemeral browsing to leave zero trace on this device.",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Incognito Switch Row
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (viewModel.incognitoSearchMode.value) Beacon500.copy(alpha = 0.1f) else Ink950,
-                                RoundedCornerShape(8.dp)
-                            )
-                            .border(
-                                1.dp,
-                                if (viewModel.incognitoSearchMode.value) Beacon500.copy(alpha = 0.4f) else Ink800,
-                                RoundedCornerShape(8.dp)
-                            )
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("🕵️", fontSize = 20.sp)
-                            Column {
-                                Text(
-                                    "Incognito Search Mode",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = if (viewModel.incognitoSearchMode.value) Beacon400 else Mist100
-                                )
-                                Text(
-                                    "When active, queries are never added to recent searches or saved to local storage.",
-                                    fontSize = 11.sp,
-                                    color = Mist400
-                                )
-                            }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Wheelchair & Mobility Access Only", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Only surface locations with verified ramp or elevator access", color = Mist400, fontSize = 11.sp)
                         }
                         Switch(
-                            checked = viewModel.incognitoSearchMode.value,
-                            onCheckedChange = {
-                                viewModel.toggleIncognitoSearchMode(it)
-                                Toast.makeText(
-                                    context,
-                                    if (it) "Incognito Search active — zero queries saved" else "Standard search history resumed",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Beacon500,
-                                checkedTrackColor = Beacon500.copy(alpha = 0.3f),
-                                uncheckedThumbColor = Mist400,
-                                uncheckedTrackColor = Ink800
-                            )
+                            checked = mobilityMode,
+                            onCheckedChange = { viewModel.toggleAccessibilityMobilityMode(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
                         )
                     }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Recent Searches Management
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink950, RoundedCornerShape(8.dp))
-                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
-                            .padding(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "SAVED RECENT SEARCHES (${viewModel.recentSearches.value.size})",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Mist400,
-                                letterSpacing = 0.8.sp
-                            )
-                            if (viewModel.recentSearches.value.isNotEmpty()) {
-                                Text(
-                                    "Clear All",
-                                    fontSize = 11.sp,
-                                    color = Color(0xFFEF4444),
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.clickable {
-                                        viewModel.clearRecentSearches()
-                                        Toast.makeText(context, "Search history cleared", Toast.LENGTH_SHORT).show()
-                                    }
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        if (viewModel.recentSearches.value.isEmpty()) {
-                            Text(
-                                "No recent searches stored on device.",
-                                fontSize = 12.sp,
-                                color = Mist400,
-                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                            )
-                        } else {
-                            viewModel.recentSearches.value.forEach { query ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 3.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("🔍", fontSize = 12.sp)
-                                        Text(query, fontSize = 13.sp, color = Mist200)
-                                    }
-                                    IconButton(
-                                        onClick = { viewModel.removeRecentSearch(query) },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Close,
-                                            contentDescription = "Remove query",
-                                            tint = Mist400,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
         }
 
-        // Section 11: Flyer Photo Cache Manager
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_cache")
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 11", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text("Photo Cache", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
-                            Box(
-                                modifier = Modifier
-                                    .background(Ink800, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("Offline Intake", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        "Audit and purge locally cached street flyer images and processed resource photo snapshots.",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    val cachedCount = viewModel.cachedPhotosList.value.size
-                    val cacheBytes = viewModel.totalPhotoCacheBytes.value
-                    val formattedSize = remember(cacheBytes) {
-                        when {
-                            cacheBytes < 1024 -> "$cacheBytes B"
-                            cacheBytes < 1024 * 1024 -> String.format(Locale.US, "%.1f KB", cacheBytes / 1024.0)
-                            else -> String.format(Locale.US, "%.2f MB", cacheBytes / (1024.0 * 1024.0))
-                        }
-                    }
-
-                    // Cache Stats Card
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink950, RoundedCornerShape(8.dp))
-                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .background(Beacon500.copy(alpha = 0.15f), CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Beacon400, modifier = Modifier.size(18.dp))
-                            }
-                            Column {
-                                Text("$cachedCount Cached Flyers", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Mist100)
-                                Text("Storage used: $formattedSize", fontSize = 12.sp, color = Beacon400)
-                            }
-                        }
-
-                        IconButton(
-                            onClick = {
-                                viewModel.refreshPhotoCacheAudit(context)
-                                Toast.makeText(context, "Photo cache audit refreshed", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Refresh Audit", tint = Mist400, modifier = Modifier.size(18.dp))
-                        }
-                    }
-
+                    Text("Dietary Requirements", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = { showPhotoCacheInspectionDialog = true },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 44.dp),
-                            border = BorderStroke(1.dp, Ink700),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200)
-                        ) {
-                            Icon(Icons.Default.List, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Inspect Files", fontSize = 12.sp)
-                        }
-
-                        Button(
-                            onClick = {
-                                viewModel.clearAllPhotoCache(context) { freedCount ->
-                                    Toast.makeText(context, "Cleared $freedCount cached flyer photos", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 44.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF7F1D1D), contentColor = Color(0xFFFCA5A5)),
-                            enabled = cachedCount > 0
-                        ) {
-                            Icon(Icons.Default.DeleteSweep, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Clear Cache", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Section 12: Database Factory Baseline Re-seeding
-        item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("settings_section_reseed")
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("SECTION 12", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text("Database Re-seed", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 16.sp)
-                            Box(
-                                modifier = Modifier
-                                    .background(Ink800, RoundedCornerShape(12.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                Text("Safe Merge", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        "Safely synchronize baseline directory resources and EBT hot meal vendors to the latest curated seed dataset. Your personal notes, bookmarks, visits, and checklist tasks are strictly preserved.",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink950, RoundedCornerShape(8.dp))
-                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("🛡️", fontSize = 14.sp)
-                            Text("Strictly preserves personal notes, bookmarks, visits & custom places", fontSize = 11.sp, color = Mist200)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("🔄", fontSize = 14.sp)
-                            Text("Updates hours, addresses, phones & intake criteria to latest verified baseline", fontSize = 11.sp, color = Mist200)
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("➕", fontSize = 14.sp)
-                            Text("Restores any accidentally deleted or missing default community services", fontSize = 11.sp, color = Mist200)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Button(
-                        onClick = { showReseedConfirmDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 44.dp)
-                            .testTag("factory_reseed_button"),
-                        colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
-                        enabled = !viewModel.isReseeding.value
-                    ) {
-                        if (viewModel.isReseeding.value) {
-                            CircularProgressIndicator(color = Ink950, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Synchronizing Baseline...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        } else {
-                            Icon(Icons.Default.Sync, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Factory Refresh Baseline Resources", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    // Reseed Success Banner
-                    viewModel.lastReseedResult.value?.let { result ->
-                        Spacer(modifier = Modifier.height(10.dp))
+                    DietaryPreset.entries.forEach { preset ->
+                        val isSelected = dietaryPresets.contains(preset)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Emerald500.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                                .border(1.dp, Emerald500.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                .padding(10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                                .clickable { viewModel.toggleDietaryPreset(preset) }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(
-                                "✅ Re-seed complete: ${result.resourcesUpdated} updated, ${result.resourcesAdded} added, ${result.rmpUpdated} RMP locations refreshed.",
-                                color = Mist100,
-                                fontSize = 11.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                            IconButton(
-                                onClick = { viewModel.dismissReseedResult() },
-                                modifier = Modifier.size(32.dp)
-                            ) {
-                                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Mist400, modifier = Modifier.size(14.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(preset.icon, fontSize = 16.sp)
+                                Text(preset.title, color = Mist100, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = { viewModel.toggleDietaryPreset(preset) },
+                                colors = CheckboxDefaults.colors(checkedColor = Beacon500)
+                            )
                         }
                     }
                 }
             }
         }
 
-        // Section 13: Data Portability & Backup (Export & Import)
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                border = BorderStroke(1.dp, Ink700),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -6778,858 +4078,373 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                    ) {
-                                    Text("SECTION 13", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                                }
-                                Text(
-                                    "Data Portability & Backup",
-                                    fontWeight = FontWeight.Bold,
-                                    color = Beacon500,
-                                    fontSize = 16.sp
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .background(Ink800, RoundedCornerShape(12.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                ) {
-                                    Text("Offline JSON", color = Emerald500, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                "Download or restore your saved favorites, private notes, visit history, and checklist tasks so personal data is never lost.",
-                                fontSize = 12.sp,
-                                color = Mist400
-                            )
+                            Text("Exclude Non-Location Helplines", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Hide phone-only or online resources when browsing physical spots", color = Mist400, fontSize = 11.sp)
                         }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Current Personal Data Inventory Summary Pills
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink950, RoundedCornerShape(8.dp))
-                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
-                            .padding(12.dp)
-                    ) {
-                        Text(
-                            "YOUR PERSONAL RECORDS READY TO BACK UP",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Black,
-                            color = Mist400,
-                            letterSpacing = 0.8.sp
+                        Switch(
+                            checked = excludeNonLocation,
+                            onCheckedChange = { viewModel.toggleExcludeNonLocationResources(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            // Favorites Pill
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(Ink900, RoundedCornerShape(6.dp))
-                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
-                                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("$totalFavs", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Beacon400)
-                                    Text("Favorites", fontSize = 10.sp, color = Mist400)
-                                }
-                            }
-                            // Notes Pill
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(Ink900, RoundedCornerShape(6.dp))
-                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
-                                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("$totalNotes", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Beacon400)
-                                    Text("Notes", fontSize = 10.sp, color = Mist400)
-                                }
-                            }
-                            // Visits Pill
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(Ink900, RoundedCornerShape(6.dp))
-                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
-                                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("$totalVisits", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Beacon400)
-                                    Text("Visits", fontSize = 10.sp, color = Mist400)
-                                }
-                            }
-                            // Tasks Pill
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .background(Ink900, RoundedCornerShape(6.dp))
-                                    .border(1.dp, Ink700, RoundedCornerShape(6.dp))
-                                    .padding(vertical = 8.dp, horizontal = 4.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("$totalTasks", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Beacon400)
-                                    Text("Tasks", fontSize = 10.sp, color = Mist400)
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Granular Selection for Export
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink950, RoundedCornerShape(8.dp))
-                            .border(1.dp, Ink800, RoundedCornerShape(8.dp))
-                            .padding(12.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "CUSTOMIZE WHAT TO EXPORT",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                color = Mist400,
-                                letterSpacing = 0.8.sp
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    "All",
-                                    fontSize = 11.sp,
-                                    color = Beacon400,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.clickable { viewModel.setExportSelectAll(true) }
-                                )
-                                Text(
-                                    "None",
-                                    fontSize = 11.sp,
-                                    color = Mist400,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.clickable { viewModel.setExportSelectAll(false) }
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(6.dp))
-                        val exportSel = viewModel.exportSelection.value
-                        val customCount = remember(resources) { resources.count { it.createdVia != "seed" } }
-                        BackupCheckboxRow("Saved Favorites ($totalFavs items)", exportSel.includeFavorites) {
-                            viewModel.setExportEntitySelected("favorites", it)
-                        }
-                        BackupCheckboxRow("Private User Notes ($totalNotes notes)", exportSel.includeNotes) {
-                            viewModel.setExportEntitySelected("notes", it)
-                        }
-                        BackupCheckboxRow("Visit History Logs ($totalVisits visits)", exportSel.includeVisits) {
-                            viewModel.setExportEntitySelected("visits", it)
-                        }
-                        BackupCheckboxRow("Checklist Tasks ($totalTasks tasks)", exportSel.includeTasks) {
-                            viewModel.setExportEntitySelected("tasks", it)
-                        }
-                        BackupCheckboxRow("Custom Community Places ($customCount places)", exportSel.includeCustomPlaces) {
-                            viewModel.setExportEntitySelected("custom", it)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Action Buttons Row 1: Export Data (Download) & Share
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = {
-                                val timeStamp = SimpleDateFormat("yyyyMMdd_HHmm", Locale.US).format(Date())
-                                exportLauncher.launch("compass_sf_backup_$timeStamp.json")
-                            },
-                            modifier = Modifier
-                                .weight(1.3f)
-                                .heightIn(min = 48.dp)
-                                .testTag("export_data_button"),
-                            colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
-                        ) {
-                            Icon(Icons.Filled.Download, contentDescription = "Export Data", modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Export (Download JSON)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                coroutineScope.launch {
-                                    try {
-                                        val json = viewModel.getExportJson()
-                                        val sendIntent = Intent(Intent.ACTION_SEND).apply {
-                                            type = "text/plain"
-                                            putExtra(Intent.EXTRA_SUBJECT, "Compass SF Backup JSON")
-                                            putExtra(Intent.EXTRA_TEXT, json)
-                                        }
-                                        context.startActivity(Intent.createChooser(sendIntent, "Share Backup JSON"))
-                                    } catch (e: Exception) {
-                                        Toast.makeText(context, "Failed to share: ${e.message}", Toast.LENGTH_SHORT).show()
-                                    }
-                                }
-                            },
-                            modifier = Modifier
-                                .weight(0.9f)
-                                .heightIn(min = 48.dp)
-                                .testTag("share_backup_button"),
-                            border = BorderStroke(1.dp, Ink700),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                        ) {
-                            Icon(Icons.Filled.Share, contentDescription = "Share Backup", modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Share", fontSize = 12.sp)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Action Buttons Row 2: Import Data (Upload) & Paste JSON
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        FilledTonalButton(
-                            onClick = {
-                                importLauncher.launch(arrayOf("application/json", "text/*", "*/*"))
-                            },
-                            modifier = Modifier
-                                .weight(1.3f)
-                                .heightIn(min = 48.dp)
-                                .testTag("import_data_button"),
-                            colors = ButtonDefaults.filledTonalButtonColors(containerColor = Ink800, contentColor = Mist100),
-                            border = BorderStroke(1.dp, Ink700),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp)
-                        ) {
-                            Icon(Icons.Filled.Upload, contentDescription = "Import Data", modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("Import (Upload JSON)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-
-                        OutlinedButton(
-                            onClick = {
-                                pastedJsonText = ""
-                                showPasteJsonDialog = true
-                            },
-                            modifier = Modifier
-                                .weight(0.9f)
-                                .heightIn(min = 48.dp)
-                                .testTag("paste_json_button"),
-                            border = BorderStroke(1.dp, Ink700),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 10.dp)
-                        ) {
-                            Icon(Icons.Filled.ContentPaste, contentDescription = "Paste JSON", modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Paste Text", fontSize = 12.sp)
-                        }
-                    }
-
-                    // Export Success Banner
-                    viewModel.exportSuccessMessage.value?.let { successMsg ->
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Emerald500.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                                .border(1.dp, Emerald500.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("✅", fontSize = 16.sp)
-                                Text(successMsg, color = Mist100, fontSize = 12.sp)
-                            }
-                            IconButton(
-                                onClick = { viewModel.dismissExportSuccess() },
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Mist400, modifier = Modifier.size(18.dp))
-                            }
-                        }
-                    }
-
-                    // Import Success Banner
-                    viewModel.lastImportResult.value?.let { result ->
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Emerald500.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                                .border(1.dp, Emerald500.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                                .padding(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("🎉", fontSize = 16.sp)
-                                    Text("Backup Restored Successfully!", fontWeight = FontWeight.Bold, color = Emerald500, fontSize = 13.sp)
-                                }
-                                IconButton(
-                                    onClick = { viewModel.dismissLastImportResult() },
-                                    modifier = Modifier.size(44.dp)
-                                ) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Mist400, modifier = Modifier.size(18.dp))
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text("• Favorites updated: ${result.favoritesUpdated}", fontSize = 12.sp, color = Mist200)
-                            Text("• Private notes merged: ${result.notesUpdated}", fontSize = 12.sp, color = Mist200)
-                            Text("• Visit history logs added: ${result.visitsRestored}", fontSize = 12.sp, color = Mist200)
-                            Text("• Checklist tasks added: ${result.tasksRestored}", fontSize = 12.sp, color = Mist200)
-                            if (result.customPlacesRestored > 0) {
-                                Text("• Custom community places added: ${result.customPlacesRestored}", fontSize = 12.sp, color = Mist200)
-                            }
-                        }
-                    }
-
-                    // Import Error Banner
-                    viewModel.importErrorMessage.value?.let { errMsg ->
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF7F1D1D).copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                .border(1.dp, Color(0xFFEF4444), RoundedCornerShape(8.dp))
-                                .padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("⚠️", fontSize = 16.sp)
-                                Text(errMsg, color = Mist100, fontSize = 12.sp)
-                            }
-                            IconButton(
-                                onClick = { viewModel.dismissImportDialog() },
-                                modifier = Modifier.size(44.dp)
-                            ) {
-                                Icon(Icons.Filled.Close, contentDescription = "Dismiss", tint = Mist400, modifier = Modifier.size(18.dp))
-                            }
-                        }
                     }
                 }
             }
         }
 
-        // Section 9: Hidden Resources Manager
-        if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text("SECTION 9", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                        }
-                        Text("Hidden Resources Manager", color = Beacon500, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    }
-                    TextButton(
-                        onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                        modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                    ) {
-                        Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
+        item {
+            OutlinedButton(
+                onClick = { viewModel.clearAllPresets() },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Rose500),
+                border = BorderStroke(1.dp, Rose500.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.ClearAll, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Clear All Presets & Preferences", fontSize = 12.sp)
             }
-
-            items(hiddenResources) { res ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Ink900, RoundedCornerShape(8.dp))
-                        .border(1.dp, Ink700, RoundedCornerShape(8.dp))
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(res.name, color = Mist100, modifier = Modifier.weight(1f), fontSize = 14.sp)
-                    Button(
-                        onClick = { viewModel.toggleResourceHidden(res) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Ink800)
-                    ) {
-                        Text("Unhide", color = Beacon500, fontSize = 12.sp)
-                    }
-                }
-            }
-
-            items(hiddenRmp) { loc ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(Ink900, RoundedCornerShape(8.dp))
-                        .border(1.dp, Ink700, RoundedCornerShape(8.dp))
-                        .padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(loc.name, color = Mist100, modifier = Modifier.weight(1f), fontSize = 14.sp)
-                    Button(
-                        onClick = { viewModel.toggleRmpHidden(loc) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Ink800)
-                    ) {
-                        Text("Unhide", color = Beacon500, fontSize = 12.sp)
-                    }
-                }
-            }
+            Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+}
 
-        // Section 10: App Statistics & Data Storage Status
+// --- Navigation & Data Sources Sub-Page ---
+@Composable
+fun NavigationSettingsPage(
+    viewModel: CompassViewModel
+) {
+    val defaultTab = viewModel.startupScreenRoute.value
+    val resources = viewModel.allResources.collectAsState(initial = emptyList()).value
+    val rmpLocations = viewModel.allRmpLocations.collectAsState(initial = emptyList()).value
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = Ink900),
-                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                border = BorderStroke(1.dp, Ink700),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🧭 Workspace Navigation", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text("Startup Screen", color = Mist300, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Ink800, RoundedCornerShape(8.dp))
+                            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text("Default startup route: $defaultTab", color = Mist100, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Civic Data Sources", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    DataSourceToggleCard(
+                        title = "SF OpenData Directory",
+                        description = "Verified community shelters, meal sites, and clinics",
+                        count = resources.size,
+                        badge = "Primary Feed",
+                        checked = true,
+                        onCheckedChange = {}
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    DataSourceToggleCard(
+                        title = "EBT Restaurant Meals Program (RMP)",
+                        description = "CalFresh hot food vendors in San Francisco",
+                        count = rmpLocations.size,
+                        badge = "CalFresh RMP",
+                        checked = true,
+                        onCheckedChange = {}
+                    )
+                }
+            }
+        }
+
+        item {
+            OutlinedButton(
+                onClick = { viewModel.resetWorkspaceNavigationToDefaults() },
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon500),
+                border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Reset Navigation Defaults", fontSize = 12.sp)
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+}
+
+// --- AI Navigator Sub-Page ---
+@Composable
+fun AiSettingsPage(
+    viewModel: CompassViewModel
+) {
+    val aiStyle = viewModel.aiNavigatorStyle.value
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🤖 AI Street Navigator", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "Provides natural language search & contextual recommendations using real SF civic datasets.",
+                        color = Mist400,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
-                                val secNum = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) "SECTION 11" else "SECTION 10"
-                                Text(secNum, color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
-                            }
-                            Text("Offline Guide Statistics & Storage", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 14.sp)
-                        }
-                        TextButton(
-                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
-                        ) {
-                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        }
+                        Text("Active Tone", fontSize = 12.sp, color = Mist300)
+                        Text(aiStyle.title, fontSize = 12.sp, color = Beacon500, fontWeight = FontWeight.Bold)
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text("Total Directory Resources: ${resources.size}", color = Mist100, fontSize = 12.sp)
-                    Text("• SF Service Guide (ShelterTech): ${resources.filter { it.source.contains("ShelterTech", ignoreCase = true) }.size}", color = Mist100, fontSize = 12.sp)
-                    Text("• DataSF Municipal Services (data.sf.gov): ${resources.filter { it.source.contains("DataSF", ignoreCase = true) }.size}", color = Mist100, fontSize = 12.sp)
-                    Text("• 211 Bay Area Human Services (Eden I&R): ${resources.filter { it.source.contains("211", ignoreCase = true) }.size}", color = Mist100, fontSize = 12.sp)
-                    Text("• San Francisco CalFresh EBT Restaurants: ${rmpLocations.size}", color = Mist100, fontSize = 12.sp)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("All data is stored locally in Room database for offline survival access.", color = Mist400, fontSize = 11.sp)
                 }
             }
-        }
-
-        // Section: Reminders & Street Alerts
-        item {
-            StreetRemindersSettingsSection(viewModel = viewModel)
-        }
-
-        item {
-            Spacer(modifier = Modifier.height(100.dp))
-        }
-    }
-
-    AnimatedVisibility(
-        visible = showScrollToTop,
-        enter = fadeIn() + slideInVertically { it / 2 },
-        exit = fadeOut() + slideOutVertically { it / 2 },
-        modifier = Modifier
-            .align(Alignment.BottomEnd)
-            .padding(end = 16.dp, bottom = 90.dp)
-    ) {
-        FloatingActionButton(
-            onClick = {
-                coroutineScope.launch {
-                    listState.animateScrollToItem(0)
-                }
-            },
-            containerColor = Beacon500,
-            contentColor = Ink950,
-            modifier = Modifier
-                .size(48.dp)
-                .testTag("scroll_to_top_button")
-        ) {
-            Icon(
-                Icons.Default.KeyboardArrowUp,
-                contentDescription = "Scroll to top index",
-                modifier = Modifier.size(26.dp)
-            )
         }
     }
 }
 
-    // --- Import Confirmation Dialog ---
-    val importPreview = viewModel.importPreviewState.value
-    if (importPreview != null) {
-        AlertDialog(
-            onDismissRequest = { viewModel.dismissImportDialog() },
-            containerColor = Ink900,
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("📥", fontSize = 20.sp)
-                    Text("Restore Backup Data", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 18.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Found records from backup created on ${importPreview.exportedDate}:",
-                        fontSize = 13.sp,
-                        color = Mist200
-                    )
+// --- Privacy Sub-Page ---
+@Composable
+fun PrivacySettingsPage(
+    viewModel: CompassViewModel
+) {
+    val incognito = viewModel.incognitoSearchMode.value
 
-                    val importSel = viewModel.importSelection.value
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink800, RoundedCornerShape(8.dp))
-                            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🕵️ Private Street Search", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text("CHOOSE WHAT TO RESTORE", fontSize = 10.sp, fontWeight = FontWeight.Black, color = Mist400)
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(
-                                    "All",
-                                    fontSize = 11.sp,
-                                    color = Beacon400,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.clickable { viewModel.setImportSelectAll(true) }
-                                )
-                                Text(
-                                    "None",
-                                    fontSize = 11.sp,
-                                    color = Mist400,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.clickable { viewModel.setImportSelectAll(false) }
-                                )
-                            }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Incognito Search Mode", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 13.sp)
+                            Text("Do not record search queries to recent history", color = Mist400, fontSize = 11.sp)
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        BackupCheckboxRow("Favorites (${importPreview.favoriteCount} items)", importSel.includeFavorites && importPreview.favoriteCount > 0, enabled = importPreview.favoriteCount > 0) {
-                            viewModel.setImportEntitySelected("favorites", it)
-                        }
-                        BackupCheckboxRow("User Notes (${importPreview.notesCount} notes)", importSel.includeNotes && importPreview.notesCount > 0, enabled = importPreview.notesCount > 0) {
-                            viewModel.setImportEntitySelected("notes", it)
-                        }
-                        BackupCheckboxRow("Visit Logs (${importPreview.visitCount} visits)", importSel.includeVisits && importPreview.visitCount > 0, enabled = importPreview.visitCount > 0) {
-                            viewModel.setImportEntitySelected("visits", it)
-                        }
-                        BackupCheckboxRow("Checklist Tasks (${importPreview.taskCount} tasks)", importSel.includeTasks && importPreview.taskCount > 0, enabled = importPreview.taskCount > 0) {
-                            viewModel.setImportEntitySelected("tasks", it)
-                        }
-                        if (importPreview.customPlacesCount > 0) {
-                            BackupCheckboxRow("Custom Places (${importPreview.customPlacesCount} places)", importSel.includeCustomPlaces) {
-                                viewModel.setImportEntitySelected("custom", it)
-                            }
-                        }
+                        Switch(
+                            checked = incognito,
+                            onCheckedChange = { viewModel.toggleIncognitoSearchMode(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Beacon500)
+                        )
                     }
 
-                    Text(
-                        "Safe Merge: Restoring will merge your personal bookmarks, notes, visit records, and tasks without removing existing directory entries.",
-                        fontSize = 11.sp,
-                        color = Mist400
-                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = { viewModel.clearRecentSearches() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200),
+                        border = BorderStroke(1.dp, Ink700),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Clear Recent Search Queries", fontSize = 12.sp)
+                    }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.confirmRestore { result ->
-                            Toast.makeText(context, "Restored ${result.favoritesUpdated} favorites, ${result.notesUpdated} notes, ${result.visitsRestored} visits, ${result.tasksRestored} tasks", Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
-                    modifier = Modifier.testTag("confirm_restore_button"),
-                    enabled = !viewModel.isImporting.value
-                ) {
-                    if (viewModel.isImporting.value) {
-                        CircularProgressIndicator(color = Ink950, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+            }
+        }
+    }
+}
+
+// --- Storage & Backup Sub-Page ---
+@Composable
+fun StorageSettingsPage(
+    viewModel: CompassViewModel,
+    resources: List<Resource>,
+    rmpLocations: List<RmpLocation>,
+    visits: List<Visit>,
+    tasks: List<Task>,
+    onExportClick: () -> Unit,
+    onImportClick: () -> Unit,
+    onOpenPasteJson: () -> Unit,
+    onOpenPhotoAudit: () -> Unit,
+    onOpenReseedConfirm: () -> Unit
+) {
+    val hiddenResources = remember(resources) { resources.filter { it.hidden } }
+    val hiddenRmp = remember(rmpLocations) { rmpLocations.filter { it.hidden } }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Granular JSON Backup & Export", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    val exportSel = viewModel.exportSelection.value
+                    BackupCheckboxRow("Starred Favorites", exportSel.includeFavorites) {
+                        viewModel.setExportEntitySelected("favorites", it)
+                    }
+                    BackupCheckboxRow("Personal Notes", exportSel.includeNotes) {
+                        viewModel.setExportEntitySelected("notes", it)
+                    }
+                    BackupCheckboxRow("Visit Logs & Field Reviews", exportSel.includeVisits) {
+                        viewModel.setExportEntitySelected("visits", it)
+                    }
+                    BackupCheckboxRow("Day Checklist Tasks", exportSel.includeTasks) {
+                        viewModel.setExportEntitySelected("tasks", it)
+                    }
+                    BackupCheckboxRow("Custom Saved Places", exportSel.includeCustomPlaces) {
+                        viewModel.setExportEntitySelected("custom", it)
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Button(
+                        onClick = onExportClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = OnAccentColor),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
-                        Text("Restoring...", fontSize = 13.sp)
-                    } else {
-                        Text("Restore & Merge", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text("Export Backup File (.json)")
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(
+                            onClick = onImportClick,
+                            modifier = Modifier.weight(1f),
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100)
+                        ) {
+                            Text("Open JSON File", fontSize = 11.sp)
+                        }
+
+                        OutlinedButton(
+                            onClick = onOpenPasteJson,
+                            modifier = Modifier.weight(1f),
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100)
+                        ) {
+                            Text("Paste Raw Text", fontSize = 11.sp)
+                        }
                     }
                 }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { viewModel.dismissImportDialog() },
-                    border = BorderStroke(1.dp, Ink700),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200),
-                    modifier = Modifier.testTag("cancel_restore_button")
-                ) {
-                    Text("Cancel", fontSize = 13.sp)
+            }
+        }
+
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(1.dp, Ink700),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("🔄 Baseline Database Re-seed", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "Restores all SF civic directory entries and EBT hot meal spots to initial baseline state.",
+                        color = Mist400,
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    OutlinedButton(
+                        onClick = onOpenReseedConfirm,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Beacon500),
+                        border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Re-seed Civic Database", fontSize = 12.sp)
+                    }
                 }
             }
-        )
-    }
+        }
 
-    // --- Paste JSON Text Dialog ---
-    if (showPasteJsonDialog) {
-        AlertDialog(
-            onDismissRequest = { showPasteJsonDialog = false },
-            containerColor = Ink900,
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Filled.ContentPaste, contentDescription = null, tint = Beacon500)
-                    Text("Paste JSON Backup", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 18.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "Paste the raw backup JSON text below (convenient if copied from an email, clipboard, or note):",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-                    OutlinedTextField(
-                        value = pastedJsonText,
-                        onValueChange = { pastedJsonText = it },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp),
-                        placeholder = { Text("{\"metadata\": {...}, ...}", color = Mist400, fontSize = 12.sp) },
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedContainerColor = Ink800,
-                            unfocusedContainerColor = Ink800,
-                            focusedBorderColor = Beacon500,
-                            unfocusedBorderColor = Ink700,
-                            focusedTextColor = Mist100,
-                            unfocusedTextColor = Mist100
-                        ),
-                        maxLines = 10
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        if (pastedJsonText.isNotBlank()) {
-                            showPasteJsonDialog = false
-                            viewModel.loadImportJson(pastedJsonText)
-                        } else {
-                            Toast.makeText(context, "Please paste JSON text first", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
-                    enabled = pastedJsonText.isNotBlank()
-                ) {
-                    Text("Inspect & Restore", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showPasteJsonDialog = false },
+        if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
+            item {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Ink900),
                     border = BorderStroke(1.dp, Ink700),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Cancel", fontSize = 13.sp)
-                }
-            }
-        )
-    }
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Hidden Items (${hiddenResources.size + hiddenRmp.size})", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 15.sp)
+                        Spacer(modifier = Modifier.height(8.dp))
 
-    // --- Photo Cache Inspection Dialog ---
-    if (showPhotoCacheInspectionDialog) {
-        val cachedFiles = viewModel.cachedPhotosList.value
-        AlertDialog(
-            onDismissRequest = { showPhotoCacheInspectionDialog = false },
-            containerColor = Ink900,
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = Beacon500)
-                    Text("Cached Flyer Photos", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 18.sp)
-                }
-            },
-            text = {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        "Stored snapshots from street flyer scans and resource photo intake:",
-                        fontSize = 12.sp,
-                        color = Mist400
-                    )
-                    if (cachedFiles.isEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 24.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("No cached photos found on device.", color = Mist400, fontSize = 13.sp)
+                        hiddenResources.forEach { res ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(res.name, color = Mist100, fontSize = 12.sp)
+                                TextButton(onClick = { viewModel.toggleResourceHidden(res) }) {
+                                    Text("Unhide", color = Beacon500, fontSize = 11.sp)
+                                }
+                            }
                         }
-                    } else {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            items(cachedFiles) { photo ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(Ink800, RoundedCornerShape(8.dp))
-                                        .padding(8.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(photo.fileName, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Mist100, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        val dateStr = SimpleDateFormat("MMM d, yyyy HH:mm", Locale.US).format(Date(photo.lastModified))
-                                        val kbStr = String.format(Locale.US, "%.1f KB", photo.sizeBytes / 1024.0)
-                                        Text("$dateStr • $kbStr", fontSize = 10.sp, color = Mist400)
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            viewModel.deleteCachedPhoto(context, photo.fileName)
-                                            Toast.makeText(context, "Deleted ${photo.fileName}", Toast.LENGTH_SHORT).show()
-                                        },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(Icons.Filled.Delete, contentDescription = "Delete photo", tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
-                                    }
+
+                        hiddenRmp.forEach { rmp ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("${rmp.name} (EBT)", color = Mist100, fontSize = 12.sp)
+                                TextButton(onClick = { viewModel.toggleRmpHidden(rmp) }) {
+                                    Text("Unhide", color = Beacon500, fontSize = 11.sp)
                                 }
                             }
                         }
                     }
                 }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { showPhotoCacheInspectionDialog = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950)
-                ) {
-                    Text("Close", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
             }
-        )
-    }
-
-    // --- Factory Re-seed Confirmation Dialog ---
-    if (showReseedConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showReseedConfirmDialog = false },
-            containerColor = Ink900,
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("🔄", fontSize = 20.sp)
-                    Text("Factory Refresh Baseline?", fontWeight = FontWeight.Bold, color = Beacon500, fontSize = 18.sp)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text(
-                        "This will synchronize all standard San Francisco directory listings and EBT hot meal vendors with the latest factory baseline data.",
-                        fontSize = 13.sp,
-                        color = Mist200
-                    )
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Ink800, RoundedCornerShape(8.dp))
-                            .border(1.dp, Ink700, RoundedCornerShape(8.dp))
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text("✅ Your personal notes & bookmarks are safe", fontSize = 11.sp, color = Emerald500)
-                        Text("✅ Your visit history logs are preserved", fontSize = 11.sp, color = Emerald500)
-                        Text("✅ Custom added community places are untouched", fontSize = 11.sp, color = Emerald500)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showReseedConfirmDialog = false
-                        viewModel.triggerFactoryReseed { result ->
-                            Toast.makeText(
-                                context,
-                                "Baseline refreshed: ${result.resourcesUpdated} updated, ${result.resourcesAdded} new, ${result.rmpUpdated} RMP synced",
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950),
-                    modifier = Modifier.testTag("confirm_reseed_button")
-                ) {
-                    Text("Confirm Refresh", fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                }
-            },
-            dismissButton = {
-                OutlinedButton(
-                    onClick = { showReseedConfirmDialog = false },
-                    border = BorderStroke(1.dp, Ink700),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200)
-                ) {
-                    Text("Cancel", fontSize = 13.sp)
-                }
-            }
-        )
+        }
     }
 }
+
+// --- Cleaned Old Monolithic Body ---
 
 // --- Chunk 5 Settings Helpers ---
 @Composable
