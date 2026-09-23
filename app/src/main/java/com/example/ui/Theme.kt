@@ -65,37 +65,48 @@ enum class AppAccentColor(
     val id: String,
     val displayName: String,
     val primary: Color,
-    val secondary: Color
+    val secondary: Color,
+    // Darker, WCAG-AA-safe variant used for accent-colored TEXT/labels whenever the
+    // active theme is light (Daylight Fog). The base `primary`/`secondary` tones are
+    // tuned for dark surfaces and fall well under 4.5:1 on a white/light card.
+    val lightSafe: Color
 ) {
     BEACON(
         id = "beacon",
         displayName = "Beacon Gold",
         primary = Color(0xFFFFB020),
-        secondary = Color(0xFFFFC350)
+        secondary = Color(0xFFFFC350),
+        lightSafe = Color(0xFFB45309) // amber-700 — 5.0:1 on white
     ),
     GOLDEN_GATE(
         id = "golden_gate",
         displayName = "Golden Gate Rust",
         primary = Color(0xFFEA580C),
-        secondary = Color(0xFFFB923C)
+        secondary = Color(0xFFFB923C),
+        lightSafe = Color(0xFFC2410C) // orange-700 — 5.2:1 on white
     ),
     PACIFIC_EMERALD(
         id = "emerald",
         displayName = "Pacific Emerald",
         primary = Color(0xFF10B981),
-        secondary = Color(0xFF34D399)
+        secondary = Color(0xFF34D399),
+        lightSafe = Color(0xFF047857) // emerald-700 — 5.5:1 on white
     ),
     OCEAN_CYAN(
         id = "cyan",
         displayName = "Ocean Cyan",
         primary = Color(0xFF06B6D4),
-        secondary = Color(0xFF38BDF8)
+        secondary = Color(0xFF38BDF8),
+        lightSafe = Color(0xFF0E7490) // cyan-700 — 5.4:1 on white
     ),
     MISSION_PURPLE(
         id = "purple",
         displayName = "Mission Violet",
-        primary = Color(0xFF8B5CF6),
-        secondary = Color(0xFFA78BFA)
+        // Lightened from the original 0xFF8B5CF6, which read 3.9–4.6:1 on every dark
+        // theme's surface (below 4.5:1 AA). This clears 4.8:1+ on all of them.
+        primary = Color(0xFF9773F8),
+        secondary = Color(0xFFA78BFA),
+        lightSafe = Color(0xFF7C3AED) // violet-600 — 5.7:1 on white
     );
 
     companion object {
@@ -211,8 +222,10 @@ fun resolveCompassColors(
             border = if (highContrast) Color(0xFF64748B) else Color(0xFFCBD5E1),
             textPrimary = Color(0xFF0F172A),
             textSecondary = Color(0xFF475569),
-            accent = if (accent == AppAccentColor.BEACON) Color(0xFFD97706) else accent.primary,
-            accentLight = if (accent == AppAccentColor.BEACON) Color(0xFFF59E0B) else accent.secondary,
+            // Every accent (not just Beacon) needs its darker `lightSafe` tone here —
+            // the bright dark-theme primaries fail AA contrast on a white/light card.
+            accent = accent.lightSafe,
+            accentLight = accent.lightSafe,
             onAccent = Color(0xFF0A0F1A),
             success = Color(0xFF059669),
             danger = Color(0xFFDC2626),
