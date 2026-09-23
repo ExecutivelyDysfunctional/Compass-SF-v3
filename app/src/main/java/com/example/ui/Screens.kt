@@ -2,7 +2,9 @@ package com.example.ui
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 
-
+import android.content.Context
+import android.content.ClipboardManager
+import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -17,7 +19,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -39,6 +40,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import coil.compose.AsyncImage
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -57,6 +60,99 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 // Note: Theme colors are dynamically provided via Theme.kt and LocalCompassTheme
+
+// --- Share Resource Card Helpers ---
+
+fun buildResourceShareText(res: Resource): String {
+    val sb = StringBuilder()
+    sb.appendLine("🧭 Compass SF Resource: ${res.name}")
+    sb.appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    if (res.category.isNotBlank()) sb.appendLine("📂 Category: ${res.category.replaceFirstChar { it.uppercase() }}")
+    if (res.neighborhood.isNotBlank()) sb.appendLine("📍 Neighborhood: ${res.neighborhood}")
+    if (res.address.isNotBlank()) sb.appendLine("🏢 Address: ${res.address}")
+    if (res.phone.isNotBlank()) sb.appendLine("📞 Phone: ${res.phone}")
+    if (res.hoursText.isNotBlank()) sb.appendLine("⏰ Hours: ${res.hoursText}")
+    if (res.cost.isNotBlank()) sb.appendLine("💵 Cost: ${res.cost}")
+    if (res.eligibility.isNotBlank()) sb.appendLine("👥 Eligibility: ${res.eligibility}")
+    if (res.requirements.isNotEmpty()) sb.appendLine("📋 Requirements: ${res.requirements.joinToString(", ")}")
+    if (res.bring.isNotEmpty()) sb.appendLine("🎒 Bring: ${res.bring.joinToString(", ")}")
+    if (res.alsoOffers.isNotEmpty()) sb.appendLine("✨ Also Offers: ${res.alsoOffers.joinToString(", ")}")
+    if (res.languages.isNotEmpty()) sb.appendLine("🗣️ Languages: ${res.languages.joinToString(", ")}")
+    if (res.summary.isNotBlank()) sb.appendLine("\n📝 Summary:\n${res.summary}")
+    if (res.aiTips.isNotBlank()) sb.appendLine("\n💡 Navigator Tip:\n${res.aiTips}")
+    if (res.website.isNotBlank()) sb.appendLine("\n🌐 Website: ${res.website}")
+    sb.appendLine("\nShared via Compass SF — Offline-First Street Navigator")
+    return sb.toString()
+}
+
+fun buildRmpShareText(rmp: RmpLocation): String {
+    val sb = StringBuilder()
+    sb.appendLine("💳 SF CalFresh EBT Restaurant: ${rmp.name}")
+    sb.appendLine("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    sb.appendLine("🍔 Cuisine: ${rmp.cuisine.replaceFirstChar { it.uppercase() }}")
+    if (rmp.neighborhood.isNotBlank()) sb.appendLine("📍 Neighborhood: ${rmp.neighborhood}")
+    if (rmp.address.isNotBlank()) sb.appendLine("🏢 Address: ${rmp.address}")
+    if (rmp.phone.isNotBlank()) sb.appendLine("📞 Phone: ${rmp.phone}")
+    if (rmp.hoursText.isNotBlank()) sb.appendLine("⏰ Hours: ${rmp.hoursText}")
+    if (rmp.notes.isNotBlank()) sb.appendLine("ℹ️ Notes: ${rmp.notes}")
+    if (rmp.tips.isNotBlank()) sb.appendLine("💡 Tips: ${rmp.tips}")
+    sb.appendLine("\nShared via Compass SF — SF CalFresh Restaurant Meals Program")
+    return sb.toString()
+}
+
+fun shareResource(context: Context, res: Resource) {
+    try {
+        val sendIntent = Intent().apply {
+            action = Intent.ACTION_SEND
+            putExtra(Intent.EXTRA_SUBJECT, "Compass SF: ${res.name}")
+            putExtra(Intent.EXTRA_TEXT, buildResourceShareText(res))
+            type = "text/plain"
+        }
+        val chooser = Intent.createChooser(sendIntent, "Share ${res.name}")
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not open share dialog: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun copyResourceDetails(context: Context, res: Resource) {
+    try {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Compass SF Resource", buildResourceShareText(res))
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Copied details for ${res.name} to clipboard", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not copy: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun shareRmpLocation(context: Context, rmp: RmpLocation) {
+    try {
+        val sendIntent = Intent().apply {
+            action = Intent.ACTION_SEND
+            putExtra(Intent.EXTRA_SUBJECT, "SF EBT Hot Meals: ${rmp.name}")
+            putExtra(Intent.EXTRA_TEXT, buildRmpShareText(rmp))
+            type = "text/plain"
+        }
+        val chooser = Intent.createChooser(sendIntent, "Share ${rmp.name}")
+        chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(chooser)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not open share dialog: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+    }
+}
+
+fun copyRmpDetails(context: Context, rmp: RmpLocation) {
+    try {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("SF EBT Hot Meals", buildRmpShareText(rmp))
+        clipboard.setPrimaryClip(clip)
+        Toast.makeText(context, "Copied details for ${rmp.name} to clipboard", Toast.LENGTH_SHORT).show()
+    } catch (e: Exception) {
+        Toast.makeText(context, "Could not copy: ${e.localizedMessage ?: "Unknown error"}", Toast.LENGTH_SHORT).show()
+    }
+}
 
 // --- Helper Open/Closed Logic ---
 fun isResourceOpen(open24: Boolean, hours: List<HourBlock>): Boolean {
@@ -1055,6 +1151,65 @@ fun AskScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = Mist400
             )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // AI Style Selector Chips Row
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        "STYLE: ${viewModel.aiNavigatorStyle.value.title.uppercase()}",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Beacon500
+                    )
+                    if (viewModel.aiOfflineOnly.value) {
+                        Box(
+                            modifier = Modifier
+                                .background(Color(0xFF854D0E).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                                .border(0.5.dp, Color(0xFFFACC15), RoundedCornerShape(4.dp))
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            Text("🟡 Offline Heuristics", color = Color(0xFFFDE047), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    AiNavigatorStyle.entries.forEach { styleOption ->
+                        val isSelected = viewModel.aiNavigatorStyle.value == styleOption
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) Beacon500 else Ink900)
+                                .border(
+                                    1.dp,
+                                    if (isSelected) Beacon500 else Ink700,
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .clickable { viewModel.setAiNavigatorStyle(styleOption) }
+                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = styleOption.badge,
+                                color = if (isSelected) Ink950 else Mist100,
+                                fontSize = 11.sp,
+                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
         }
 
         item {
@@ -2898,18 +3053,19 @@ fun SettingsScreen(
     // Exact index targets in the LazyColumn
     val targetWorkspaceIndex = 3
     val targetFiltersIndex = 4
-    val targetThemeIndex = 5
-    val targetAccentIndex = 6
-    val targetTextIndex = 7
-    val targetDisplayIndex = 8
-    val targetMapIndex = 9
-    val targetIconIndex = 10
-    val targetBackupIndex = 11
-    val targetHiddenIndex = 12
+    val targetAiIndex = 5
+    val targetThemeIndex = 6
+    val targetAccentIndex = 7
+    val targetTextIndex = 8
+    val targetDisplayIndex = 9
+    val targetMapIndex = 10
+    val targetIconIndex = 11
+    val targetBackupIndex = 12
+    val targetHiddenIndex = 13
     val targetStatsIndex = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-        12 + 1 + hiddenResources.size + hiddenRmp.size
+        13 + 1 + hiddenResources.size + hiddenRmp.size
     } else {
-        12
+        13
     }
 
     Box(
@@ -2999,7 +3155,7 @@ fun SettingsScreen(
                                     .border(1.dp, Ink700, RoundedCornerShape(12.dp))
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
-                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 11 else 10
+                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 12 else 11
                                 Text(
                                     "$totalSections Sections",
                                     color = Mist200,
@@ -3015,6 +3171,7 @@ fun SettingsScreen(
                             val list = mutableListOf(
                                 Triple("🧭 Navigation", "Startup & Bottom Bar", targetWorkspaceIndex),
                                 Triple("⚙️ Filters", "Demographic & Dietary", targetFiltersIndex),
+                                Triple("🤖 AI Navigator", "Style & Endpoint", targetAiIndex),
                                 Triple("🎨 Themes", "Atmosphere & Tones", targetThemeIndex),
                                 Triple("🌈 Accents", "Highlight Colors", targetAccentIndex),
                                 Triple("🔤 Text Size", "Scaling & Readability", targetTextIndex),
@@ -3970,6 +4127,324 @@ fun SettingsScreen(
                                     borderColor = if (isSelected) Beacon500 else Ink700,
                                     enabled = true, selected = isSelected
                                 )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: AI Street Navigator & Gemini Customization
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, Ink700),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_ai_navigator")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("AI NAVIGATOR", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Gemini Street AI",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    Text(
+                        "Configure AI response depth, toggle offline heuristics mode, or specify custom Gemini API keys and endpoints",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection A: Response Style & Depth
+                    Text("RESPONSE STYLE & DEPTH", fontWeight = FontWeight.Black, fontSize = 11.sp, color = Beacon500, letterSpacing = 0.8.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AiNavigatorStyle.entries.forEach { styleOption ->
+                            val isSelected = viewModel.aiNavigatorStyle.value == styleOption
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Ink800 else Ink950)
+                                    .border(
+                                        if (isSelected) 1.5.dp else 1.dp,
+                                        if (isSelected) Beacon500 else Ink700,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { viewModel.setAiNavigatorStyle(styleOption) }
+                                    .padding(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Text(
+                                                styleOption.title,
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 14.sp,
+                                                color = if (isSelected) Beacon500 else Mist100
+                                            )
+                                            Box(
+                                                modifier = Modifier
+                                                    .background(if (isSelected) Beacon500.copy(alpha = 0.2f) else Ink800, RoundedCornerShape(4.dp))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
+                                                Text(
+                                                    styleOption.badge,
+                                                    fontSize = 10.sp,
+                                                    color = if (isSelected) Beacon400 else Mist400,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(3.dp))
+                                        Text(
+                                            styleOption.description,
+                                            fontSize = 12.sp,
+                                            color = Mist400,
+                                            lineHeight = 16.sp
+                                        )
+                                    }
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { viewModel.setAiNavigatorStyle(styleOption) },
+                                        colors = RadioButtonDefaults.colors(selectedColor = Beacon500)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection B: Offline-Only Heuristics Mode
+                    Text("OFFLINE ENGINE", fontWeight = FontWeight.Black, fontSize = 11.sp, color = Beacon500, letterSpacing = 0.8.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Ink950),
+                        border = BorderStroke(1.dp, Ink700),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Force Offline Heuristics", fontWeight = FontWeight.Bold, color = Mist100, fontSize = 14.sp)
+                                    Text(
+                                        "Bypass all network calls to Gemini. Uses 100% on-device tag & distance matching to save mobile data and work with zero cell reception.",
+                                        fontSize = 11.sp,
+                                        color = Mist400
+                                    )
+                                }
+                                Switch(
+                                    checked = viewModel.aiOfflineOnly.value,
+                                    onCheckedChange = { viewModel.setAiOfflineOnly(it) },
+                                    colors = SwitchDefaults.colors(
+                                        checkedThumbColor = Ink950,
+                                        checkedTrackColor = Beacon500
+                                    ),
+                                    modifier = Modifier.testTag("ai_offline_switch")
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(if (viewModel.aiOfflineOnly.value) Color(0xFF854D0E).copy(alpha = 0.35f) else Emerald500.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                    .border(1.dp, if (viewModel.aiOfflineOnly.value) Color(0xFFFACC15) else Emerald500.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    if (viewModel.aiOfflineOnly.value) "🟡 100% Local On-Device Mode Active" else "🟢 Gemini 2.5 Flash Online Mode Active",
+                                    color = if (viewModel.aiOfflineOnly.value) Color(0xFFFDE047) else Emerald500,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection C: Custom Gemini Credentials & Endpoint
+                    Text("API CREDENTIALS & ENDPOINT", fontWeight = FontWeight.Black, fontSize = 11.sp, color = Beacon500, letterSpacing = 0.8.sp)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        "By default, Compass SF uses the pre-configured Gemini API key. Caseworkers or developers may enter their own key or custom proxy endpoint below.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    var customKeyInput by remember(viewModel.aiCustomApiKey.value) { mutableStateOf(viewModel.aiCustomApiKey.value) }
+                    var customEndpointInput by remember(viewModel.aiCustomEndpoint.value) { mutableStateOf(viewModel.aiCustomEndpoint.value) }
+                    var showKeyPassword by remember { mutableStateOf(false) }
+
+                    OutlinedTextField(
+                        value = customKeyInput,
+                        onValueChange = {
+                            customKeyInput = it
+                            viewModel.setAiCustomApiKey(it)
+                        },
+                        label = { Text("Custom Gemini API Key", fontSize = 12.sp, color = Mist400) },
+                        placeholder = { Text("AIzaSy...", color = Mist400, fontSize = 12.sp) },
+                        singleLine = true,
+                        visualTransformation = if (showKeyPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                        trailingIcon = {
+                            IconButton(onClick = { showKeyPassword = !showKeyPassword }) {
+                                Icon(
+                                    imageVector = if (showKeyPassword) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                    contentDescription = "Toggle password visibility",
+                                    tint = Mist400,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ai_custom_api_key_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Beacon500,
+                            unfocusedBorderColor = Ink700,
+                            focusedTextColor = Mist100,
+                            unfocusedTextColor = Mist100
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    OutlinedTextField(
+                        value = customEndpointInput,
+                        onValueChange = {
+                            customEndpointInput = it
+                            viewModel.setAiCustomEndpoint(it)
+                        },
+                        label = { Text("Custom Base URL Endpoint (optional)", fontSize = 12.sp, color = Mist400) },
+                        placeholder = { Text("https://generativelanguage.googleapis.com/", color = Mist400, fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("ai_custom_endpoint_input"),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Beacon500,
+                            unfocusedBorderColor = Ink700,
+                            focusedTextColor = Mist100,
+                            unfocusedTextColor = Mist100
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { viewModel.testAiConnection() },
+                            enabled = !viewModel.isTestingAiConnection.value,
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 44.dp)
+                                .testTag("test_ai_connection_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = Beacon500, contentColor = Ink950)
+                        ) {
+                            if (viewModel.isTestingAiConnection.value) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Ink950, strokeWidth = 2.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Testing...", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(Icons.Default.Speed, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Test Connection", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.resetAiSettings()
+                                customKeyInput = ""
+                                customEndpointInput = ""
+                                Toast.makeText(context, "AI settings restored to defaults", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 44.dp)
+                                .testTag("reset_ai_settings_button"),
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = Beacon400, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Reset Defaults", fontSize = 12.sp)
+                        }
+                    }
+
+                    if (viewModel.aiConnectionStatus.value != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        val status = viewModel.aiConnectionStatus.value.orEmpty()
+                        val isSuccess = status.startsWith("✅")
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    if (isSuccess) Emerald500.copy(alpha = 0.15f) else Color(0xFF7F1D1D).copy(alpha = 0.35f),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (isSuccess) Emerald500 else Rose500,
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .padding(10.dp)
+                        ) {
+                            Text(
+                                status,
+                                color = if (isSuccess) Emerald500 else Color(0xFFFCA5A5),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -5569,6 +6044,9 @@ fun DetailScreen(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, "back", tint = Mist100)
                 }
                 Row {
+                    IconButton(onClick = { shareResource(context, res) }) {
+                        Icon(Icons.Default.Share, "share", tint = Beacon400)
+                    }
                     IconButton(onClick = { viewModel.toggleResourceFavorite(res) }) {
                         Icon(
                             if (res.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
@@ -5706,6 +6184,42 @@ fun DetailScreen(
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text("Website", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             }
+                        }
+                    }
+
+                    // Share Resource Card & Copy Info Action Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { shareResource(context, res) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("share_resource_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = Ink800, contentColor = Mist100),
+                            border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.6f)),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = "Share Resource", tint = Beacon400, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Share Card", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        OutlinedButton(
+                            onClick = { copyResourceDetails(context, res) },
+                            modifier = Modifier
+                                .weight(1f)
+                                .heightIn(min = 48.dp)
+                                .testTag("copy_resource_button"),
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+                        ) {
+                            Icon(Icons.Default.ContentCopy, contentDescription = "Copy Info", tint = Beacon400, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Copy Info", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
@@ -5922,6 +6436,7 @@ fun ResourceCard(
     onCardClick: () -> Unit,
     onFavoriteClick: () -> Unit
 ) {
+    val context = LocalContext.current
     val theme = LocalCompassTheme.current
     val cardPadding = if (theme.compactView) 10.dp else 14.dp
     val borderStroke = BorderStroke(
@@ -5951,16 +6466,29 @@ fun ResourceCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(
-                    onClick = onFavoriteClick,
-                    modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
-                ) {
-                    Icon(
-                        imageVector = if (resource.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (resource.favorite) Rose500 else Mist400,
-                        modifier = Modifier.size(20.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { shareResource(context, resource) },
+                        modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = Mist400,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onFavoriteClick,
+                        modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (resource.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (resource.favorite) Rose500 else Mist400,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
@@ -6098,16 +6626,29 @@ fun RmpCard(
                     }
                     Text(locSub, color = Mist400, fontSize = 12.sp)
                 }
-                IconButton(
-                    onClick = onFavoriteClick,
-                    modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
-                ) {
-                    Icon(
-                        imageVector = if (location.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (location.favorite) Rose500 else Mist400,
-                        modifier = Modifier.size(22.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { shareRmpLocation(context, location) },
+                        modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Share,
+                            contentDescription = "Share",
+                            tint = Mist400,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onFavoriteClick,
+                        modifier = Modifier.defaultMinSize(minWidth = 44.dp, minHeight = 44.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (location.favorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            contentDescription = "Favorite",
+                            tint = if (location.favorite) Rose500 else Mist400,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
 

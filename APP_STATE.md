@@ -66,7 +66,7 @@
   - **Pinch-to-Zoom Image Viewer**: Tap any flyer thumbnail to open a full-screen, interactive image viewer with pinch-to-zoom and pan gestures to verify text while parsing data.
   - AI-assisted unstructured flyer/text parsing into structured database fields.
   - Manual entry fallback editor for submitting new community resources.
-- **Settings & Modularity Enhancements (Chunk 1 & Chunk 2)**:
+- **Settings & Modularity Enhancements (Chunk 1, Chunk 2, & Chunk 4)**:
   - **Chunk 1: Navigation & Workspace Config**: Configure default initial landing screen (Now, Map, Find, or Day), dynamic reorderable 2-6 bottom bar navigation tabs, persistent default SF neighborhood anchor, and quick workspace reset.
   - **Chunk 2: Map & Cartography Controls**:
     - **Map Vector Layer Toggles**: Dedicated controls for Transit Lines & Subway (BART tunnels, Muni Metro light rail routes, and station nodes), Neighborhood Boundary Outlines (Tenderloin, SoMa, Mission, Civic Center, Chinatown, Castro, etc.), and Street Names & Landmark Badges (City Hall, Ferry Bldg, etc.).
@@ -74,7 +74,17 @@
     - **Battery Saver / Reduced Motion Mode**: Toggle that disables high-frequency canvas animations and continuous pulsing GPS radar waves to minimize battery consumption when walking outdoors.
     - **Quick Reset for Map Settings**: Dedicated reset button restoring all cartography layer options, clustering radius, and animations to recommended defaults.
     - **Room Persistence**: All map cartography preferences automatically persist in Room SQLite database.
-  - **Quick Settings Index & Jump Navigation**: Fast-jump index grid at the top of the Settings screen with interactive direct-scroll buttons (Navigation, Themes, Accents, Text Size, Display, Map Layers, App Icon, Backup & Restore, Hidden Manager, App Statistics), matching numbered section badges on each card, quick "Index ↑" return buttons, and a floating animated "Scroll to Top" button.
+  - **Chunk 4: AI Navigator Customization & Gemini Integration**:
+    - **Response Format & Conciseness Style Selector**: 3 dedicated operating modes (`⚡ Quick Street Action` for 1-2 sentence immediate triage, `🧭 Step-by-Step Guide` for balanced hours/steps walkthrough, and `📋 Comprehensive Caseworker Mode` for deep eligibility criteria and document checklists).
+    - **Active Style Chips on Ask Screen**: In-situ mode switcher and live indicator banner directly on `AskScreen` for frictionless toggling while querying.
+    - **Offline-Only Heuristics Engine Toggle**: Option to force 100% on-device tag, keyword, and Haversine distance matching algorithms, completely bypassing external Gemini network requests to save cellular data and function without cell reception.
+    - **Custom Gemini API Key & Dynamic Endpoint Configuration**: Full support for personal Google AI Studio Gemini API keys and custom proxy/base URL endpoints, with runtime credential testing (`testAiConnection`), masked password inputs, and instant reset to defaults.
+    - **Room SQLite Persistence**: All AI settings (`aiNavigatorStyle`, `aiOfflineOnly`, `aiCustomApiKey`, `aiCustomEndpoint`) automatically load on app start and persist in SQLite.
+  - **Quick Settings Index & Jump Navigation**: Fast-jump index grid at the top of the Settings screen with interactive direct-scroll buttons (Navigation, Filters, AI Navigator, Themes, Accents, Text Size, Display, Map Layers, App Icon, Backup & Restore, Hidden Manager, App Statistics), matching numbered section badges on each card, quick "Index ↑" return buttons, and a floating animated "Scroll to Top" button.
+- **Share Resource Card**:
+  - Android share sheet integration (`Intent.ACTION_SEND`) and one-tap clipboard copy for formatted resource and EBT hot-meal restaurant summaries.
+  - Full address, hours, category, eligibility, phone, website, and street navigator tips structured cleanly for SMS/messaging to clients or friends.
+  - Integrated directly across `DetailScreen` (top bar and prominent action card buttons), `ResourceCard` (quick share icon), and `RmpCard` (quick share icon).
 - **Settings & Theming**:
   - 5 Theme Modes: Midnight Ink (default dark), OLED Pure Black (battery saver), Daylight Fog (high-contrast light mode), Warm Sunset (warm amber charcoal), Pacific Marine (oceanic teal).
   - 5 Accent Palettes: Beacon Gold, Golden Gate Rust, Pacific Emerald, Ocean Cyan, Mission Violet.
@@ -108,10 +118,8 @@
 
 ## [Next Up]
 - **Settings & Modularity Enhancements**:
-  - **Chunk 4: AI Navigator Customization (Gemini Integration)**: Response format & conciseness style picker (Quick Street Action, Step-by-Step Guide, Comprehensive Caseworker Mode), Offline-only heuristic fallback toggle, and custom API key / endpoint entry.
   - **Chunk 5: Privacy, Data Sources & Granular Portability**: Granular backup/restore checkboxes (export/import specific entity sets), ephemeral/incognito search mode, photo cache manager, data source toggles, and database factory re-seeding.
   - **Chunk 6: Reminders & Alerts**: Local meal closing time and drop-in clinic deadline alerts, plus morning day-plan briefings.
-- **Share Resource Card**: Android share sheet integration to quickly text or copy address, hours, and notes for a resource to a friend or client.
 - **Resource Verification & Community Wait Time Analytics**: Extended historical wait time graphing and crowdsourced open-now confirmation telemetry.
 
 ---

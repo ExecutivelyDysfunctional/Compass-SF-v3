@@ -22,6 +22,17 @@ import retrofit2.http.Query
 // --- Gemini Request/Response Models ---
 
 @Serializable
+enum class AiNavigatorStyle(val id: String, val title: String, val description: String, val badge: String) {
+    QUICK("quick", "Quick Street Action", "Punchy 1-2 sentence response, instant next steps, and rapid top pick for fast street decisions.", "⚡ Quick"),
+    GUIDE("guide", "Step-by-Step Guide", "Balanced chronological walk-through with practical advice, hours tips, and recommended picks.", "🧭 Guide"),
+    CASEWORKER("caseworker", "Comprehensive Caseworker", "In-depth caseworker consultation with intake documents, contingency options, transit tips, and eligibility notes.", "📋 Detailed");
+
+    companion object {
+        fun fromId(id: String): AiNavigatorStyle = entries.find { it.id == id } ?: GUIDE
+    }
+}
+
+@Serializable
 data class GenerateContentRequest(
     val contents: List<Content>,
     val generationConfig: GenerationConfig? = null,
@@ -83,7 +94,7 @@ interface GeminiApiService {
 }
 
 object RetrofitClient {
-    private const val BASE_URL = "https://generativelanguage.googleapis.com/"
+    private const val DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/"
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
@@ -91,15 +102,36 @@ object RetrofitClient {
         .writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
-    val service: GeminiApiService by lazy {
-        val json = Json { ignoreUnknownKeys = true }
+    private val json = Json { ignoreUnknownKeys = true }
+    private var cachedBaseUrl: String? = null
+    private var cachedService: GeminiApiService? = null
+
+    @Synchronized
+    fun getService(customEndpoint: String? = null): GeminiApiService {
+        val endpoint = if (!customEndpoint.isNullOrBlank()) {
+            val trimmed = customEndpoint.trim()
+            if (trimmed.endsWith("/")) trimmed else "$trimmed/"
+        } else {
+            DEFAULT_BASE_URL
+        }
+
+        if (cachedService != null && cachedBaseUrl == endpoint) {
+            return cachedService!!
+        }
+
         val retrofit = Retrofit.Builder()
-            .baseUrl(BASE_URL)
+            .baseUrl(endpoint)
             .client(okHttpClient)
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
-        retrofit.create(GeminiApiService::class.java)
+        val service = retrofit.create(GeminiApiService::class.java)
+        cachedBaseUrl = endpoint
+        cachedService = service
+        return service
     }
+
+    val service: GeminiApiService
+        get() = getService(null)
 }
 
 // --- High-Level AI Operations ---
@@ -108,11 +140,46 @@ object AiService {
     private val json = Json { ignoreUnknownKeys = true }
 
     /**
+     * Verifies API connectivity with the configured or custom credentials.
+     */
+    suspend fun testConnection(customApiKey: String = "", customEndpoint: String = ""): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val apiKey = if (customApiKey.isNotBlank()) customApiKey.trim() else BuildConfig.GEMINI_API_KEY
+        if (apiKey.isBlank()) {
+            return@withContext Pair(false, "No API key configured in BuildConfig or Custom Settings.")
+        }
+        try {
+            val startTime = System.currentTimeMillis()
+            val service = RetrofitClient.getService(customEndpoint)
+            val request = GenerateContentRequest(
+                contents = listOf(Content(parts = listOf(Part(text = "Hello! Reply with 'OK' only.")))),
+                generationConfig = GenerationConfig(temperature = 0.1f)
+            )
+            val response = service.generateContent(apiKey, request)
+            val elapsed = System.currentTimeMillis() - startTime
+            val text = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text ?: ""
+            if (text.isNotBlank()) {
+                Pair(true, "Connected to Gemini 3.5 Flash successfully (${elapsed}ms)")
+            } else {
+                Pair(false, "Connected to API endpoint, but received an empty response candidate.")
+            }
+        } catch (e: Exception) {
+            val msg = e.localizedMessage ?: e.message ?: "Unknown connection error"
+            Log.e("AiService", "API Connection Test failed", e)
+            Pair(false, "Connection error: $msg")
+        }
+    }
+
+    /**
      * Parses messy raw text into structured resource parameters.
      */
-    suspend fun parseMessyText(rawText: String): ResourceDraft? = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isBlank()) {
+    suspend fun parseMessyText(
+        rawText: String,
+        offlineOnly: Boolean = false,
+        customApiKey: String = "",
+        customEndpoint: String = ""
+    ): ResourceDraft? = withContext(Dispatchers.IO) {
+        val apiKey = if (customApiKey.isNotBlank()) customApiKey.trim() else BuildConfig.GEMINI_API_KEY
+        if (offlineOnly || apiKey.isBlank()) {
             return@withContext runOfflineParser(rawText)
         }
 
@@ -192,7 +259,8 @@ object AiService {
         )
 
         try {
-            val response = RetrofitClient.service.generateContent(apiKey, request)
+            val service = RetrofitClient.getService(customEndpoint)
+            val response = service.generateContent(apiKey, request)
             val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?: return@withContext runOfflineParser(rawText)
             Log.d("AiService", "Parsed AI response: $jsonText")
@@ -209,10 +277,13 @@ object AiService {
     suspend fun parseFlyerImage(
         base64Image: String,
         mimeType: String = "image/jpeg",
-        notes: String = ""
+        notes: String = "",
+        offlineOnly: Boolean = false,
+        customApiKey: String = "",
+        customEndpoint: String = ""
     ): ResourceDraft? = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isBlank()) {
+        val apiKey = if (customApiKey.isNotBlank()) customApiKey.trim() else BuildConfig.GEMINI_API_KEY
+        if (offlineOnly || apiKey.isBlank()) {
             return@withContext runOfflineImageParser(notes)
         }
 
@@ -325,7 +396,8 @@ object AiService {
         )
 
         try {
-            val response = RetrofitClient.service.generateContent(apiKey, request)
+            val service = RetrofitClient.getService(customEndpoint)
+            val response = service.generateContent(apiKey, request)
             val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
                 ?: return@withContext runOfflineImageParser(notes)
             Log.d("AiService", "Parsed flyer image response: $jsonText")
@@ -343,11 +415,15 @@ object AiService {
         question: String,
         resources: List<Resource>,
         neighborhoodFilter: String,
-        openNowFilter: Boolean
+        openNowFilter: Boolean,
+        style: AiNavigatorStyle = AiNavigatorStyle.GUIDE,
+        offlineOnly: Boolean = false,
+        customApiKey: String = "",
+        customEndpoint: String = ""
     ): AskResponse = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
-        if (apiKey.isBlank()) {
-            return@withContext runOfflineAsk(question, resources)
+        val apiKey = if (customApiKey.isNotBlank()) customApiKey.trim() else BuildConfig.GEMINI_API_KEY
+        if (offlineOnly || apiKey.isBlank()) {
+            return@withContext runOfflineAsk(question, resources, style)
         }
 
         // Prepare context
@@ -359,18 +435,40 @@ object AiService {
             User Question: "$question"
             Selected Neighborhood Filter: "$neighborhoodFilter"
             Open Now Only: $openNowFilter
+            Active Navigator Style: "${style.title}"
             
             Here is the list of available resources:
             $contextText
         """.trimIndent()
 
+        val styleInstruction = when (style) {
+            AiNavigatorStyle.QUICK -> """
+                Tone: Rapid street action triage.
+                Answer: Exactly 1-2 punchy, direct sentences without conversational fluff. Tell the user where to go immediately.
+                NextSteps: Exactly 2 rapid, direct action steps.
+                Picks: Select 1 or 2 best matching resources with brief 1-sentence explanations.
+            """.trimIndent()
+            AiNavigatorStyle.GUIDE -> """
+                Tone: Street-smart, friendly navigator for Compass SF.
+                Answer: 2-3 clear, companionable sentences explaining how to get what they need.
+                NextSteps: 2-3 logical chronological next steps.
+                Picks: Select 2-3 best matching resources from the provided list with clear explanations.
+            """.trimIndent()
+            AiNavigatorStyle.CASEWORKER -> """
+                Tone: Senior San Francisco homeless caseworker and benefits specialist.
+                Answer: 3-4 comprehensive, structured sentences. Outline eligibility criteria, what documents to bring (ID, homeless verification, proof of income), transit access, and backup plans if capacity is full.
+                NextSteps: 3-4 structured, prioritized casework steps.
+                Picks: Select 2-3 matching resources with thorough justifications explaining why each fits their situation.
+            """.trimIndent()
+        }
+
         val systemInstruction = """
             You are the street-smart AI navigator for Compass SF.
-            Answer the user's question directly, clearly, and companionably in 2-3 sentences.
-            Provide 2-3 logical nextSteps in order.
+            $styleInstruction
+            
             Crucially, select the best matching resources from the provided list (IDs must exist in the context).
             Return a JSON object with fields:
-            - "answer": string (warm conversational guidance)
+            - "answer": string (guidance matching the requested tone)
             - "nextSteps": array of strings (action steps)
             - "picks": array of objects, each with "id" (Int) and "why" (String explanation of why this place is perfect for their exact request).
         """.trimIndent()
@@ -396,24 +494,31 @@ object AiService {
             }
         }
 
+        val temperature = when (style) {
+            AiNavigatorStyle.QUICK -> 0.1f
+            AiNavigatorStyle.GUIDE -> 0.3f
+            AiNavigatorStyle.CASEWORKER -> 0.2f
+        }
+
         val request = GenerateContentRequest(
             contents = listOf(Content(parts = listOf(Part(text = prompt)))),
             systemInstruction = Content(parts = listOf(Part(text = systemInstruction))),
             generationConfig = GenerationConfig(
                 responseFormat = ResponseFormat(ResponseFormatText(mimeType = "application/json", schema = schemaJson)),
-                temperature = 0.3f
+                temperature = temperature
             )
         )
 
         try {
-            val response = RetrofitClient.service.generateContent(apiKey, request)
+            val service = RetrofitClient.getService(customEndpoint)
+            val response = service.generateContent(apiKey, request)
             val jsonText = response.candidates.firstOrNull()?.content?.parts?.firstOrNull()?.text
-                ?: return@withContext runOfflineAsk(question, resources)
+                ?: return@withContext runOfflineAsk(question, resources, style)
             Log.d("AiService", "Ask AI response: $jsonText")
             return@withContext json.decodeFromString<AskResponse>(jsonText)
         } catch (e: Exception) {
             Log.e("AiService", "Failed to ask AI, falling back to offline", e)
-            return@withContext runOfflineAsk(question, resources)
+            return@withContext runOfflineAsk(question, resources, style)
         }
     }
 
@@ -482,8 +587,13 @@ object AiService {
         )
     }
 
-    private fun runOfflineAsk(question: String, resources: List<Resource>): AskResponse {
+    private fun runOfflineAsk(
+        question: String,
+        resources: List<Resource>,
+        style: AiNavigatorStyle = AiNavigatorStyle.GUIDE
+    ): AskResponse {
         val lowerQ = question.lowercase()
+        val takeCount = if (style == AiNavigatorStyle.QUICK) 2 else 3
         // Simple search and score
         val ranked = resources.map { r ->
             var score = 0
@@ -495,15 +605,40 @@ object AiService {
             r to score
         }.filter { it.second > 0 }
             .sortedByDescending { it.second }
-            .take(3)
+            .take(takeCount)
 
         val picks = ranked.map { (r, _) ->
-            PickDraft(id = r.id, why = "Matches your interest in ${r.category}.")
+            val why = when (style) {
+                AiNavigatorStyle.QUICK -> "Immediate match for ${r.category} in ${r.neighborhood}."
+                AiNavigatorStyle.CASEWORKER -> "Program matches request for ${r.category}. Intake requires checking requirements; review schedule before walk-in."
+                else -> "Matches your interest in ${r.category}."
+            }
+            PickDraft(id = r.id, why = why)
+        }
+
+        val (answerText, steps) = when (style) {
+            AiNavigatorStyle.QUICK -> Pair(
+                if (picks.isNotEmpty()) "Offline Street Action: Head directly to the top matched location below for immediate ${question.take(24)}."
+                else "Offline Street Action: No direct keyword match found. Head to GLIDE (330 Ellis) or St. Anthony's (150 Golden Gate) for immediate triage.",
+                listOf("Walk to the highlighted location immediately.", "Confirm current capacity at the intake desk.")
+            )
+            AiNavigatorStyle.CASEWORKER -> Pair(
+                "Offline Caseworker Assessment: Evaluated local San Francisco resource directory for \"$question\". Found ${picks.size} relevant community providers offering related assistance.",
+                listOf(
+                    "Gather identification, verification paperwork, and arrive early during intake hours.",
+                    "Verify daily operating schedule and any pre-screening requirements.",
+                    "Maintain a secondary contingency location in case program intake has met capacity."
+                )
+            )
+            else -> Pair(
+                "Offline navigator fallback: I found ${picks.size} resources that might help you based on keyword matching.",
+                listOf("Review the matching locations below.", "Visit GLIDE or St. Anthony's for on-the-spot support.")
+            )
         }
 
         return AskResponse(
-            answer = "Offline navigator fallback: I found ${picks.size} resources that might help you based on keyword matching.",
-            nextSteps = listOf("Review the matching locations below.", "Visit GLIDE or St. Anthony's for on-the-spot support."),
+            answer = answerText,
+            nextSteps = steps,
             picks = picks
         )
     }

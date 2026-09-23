@@ -97,6 +97,14 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val dietaryPresets = mutableStateOf<Set<DietaryPreset>>(emptySet())
     val excludeNonLocationResources = mutableStateOf(false)
 
+    // --- AI Navigator Customization (Chunk 4) ---
+    val aiNavigatorStyle = mutableStateOf(AiNavigatorStyle.GUIDE)
+    val aiOfflineOnly = mutableStateOf(false)
+    val aiCustomApiKey = mutableStateOf("")
+    val aiCustomEndpoint = mutableStateOf("")
+    val aiConnectionStatus = mutableStateOf<String?>(null)
+    val isTestingAiConnection = mutableStateOf(false)
+
     val hasActivePresets: Boolean
         get() = demographicPresets.value.isNotEmpty() || accessibilityMobilityMode.value || dietaryPresets.value.isNotEmpty() || excludeNonLocationResources.value
 
@@ -202,6 +210,20 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             }
             repository.getSetting("exclude_non_location")?.let {
                 excludeNonLocationResources.value = it.toBooleanStrictOrNull() ?: false
+            }
+
+            // Load AI Navigator Customization Preferences (Chunk 4)
+            repository.getSetting("ai_navigator_style")?.let { id ->
+                aiNavigatorStyle.value = AiNavigatorStyle.fromId(id)
+            }
+            repository.getSetting("ai_offline_only")?.let {
+                aiOfflineOnly.value = it.toBooleanStrictOrNull() ?: false
+            }
+            repository.getSetting("ai_custom_api_key")?.let {
+                aiCustomApiKey.value = it
+            }
+            repository.getSetting("ai_custom_endpoint")?.let {
+                aiCustomEndpoint.value = it
             }
 
             val locType = repository.getSetting("location_type") ?: "none"
@@ -476,7 +498,10 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                 val result = AiService.parseFlyerImage(
                     base64Image = base64,
                     mimeType = "image/jpeg",
-                    notes = addRawText.value
+                    notes = addRawText.value,
+                    offlineOnly = aiOfflineOnly.value,
+                    customApiKey = aiCustomApiKey.value,
+                    customEndpoint = aiCustomEndpoint.value
                 )
                 if (result != null) {
                     draftResource.value = result
@@ -497,7 +522,12 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
         parseError.value = null
         viewModelScope.launch {
             try {
-                val result = AiService.parseMessyText(addRawText.value)
+                val result = AiService.parseMessyText(
+                    rawText = addRawText.value,
+                    offlineOnly = aiOfflineOnly.value,
+                    customApiKey = aiCustomApiKey.value,
+                    customEndpoint = aiCustomEndpoint.value
+                )
                 if (result != null) {
                     draftResource.value = result
                 } else {
@@ -582,7 +612,11 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
                     question = askQuestion.value,
                     resources = list.filter { !it.hidden },
                     neighborhoodFilter = askNeighborhood.value,
-                    openNowFilter = askOpenOnly.value
+                    openNowFilter = askOpenOnly.value,
+                    style = aiNavigatorStyle.value,
+                    offlineOnly = aiOfflineOnly.value,
+                    customApiKey = aiCustomApiKey.value,
+                    customEndpoint = aiCustomEndpoint.value
                 )
                 askResult.value = response
             } catch (e: Exception) {
@@ -590,6 +624,63 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             } finally {
                 isAsking.value = false
             }
+        }
+    }
+
+    // --- AI Navigator Customization Operations (Chunk 4) ---
+
+    fun setAiNavigatorStyle(style: AiNavigatorStyle) {
+        aiNavigatorStyle.value = style
+        viewModelScope.launch {
+            repository.saveSetting("ai_navigator_style", style.id)
+        }
+    }
+
+    fun setAiOfflineOnly(enabled: Boolean) {
+        aiOfflineOnly.value = enabled
+        viewModelScope.launch {
+            repository.saveSetting("ai_offline_only", enabled.toString())
+        }
+    }
+
+    fun setAiCustomApiKey(key: String) {
+        aiCustomApiKey.value = key
+        viewModelScope.launch {
+            repository.saveSetting("ai_custom_api_key", key)
+        }
+    }
+
+    fun setAiCustomEndpoint(endpoint: String) {
+        aiCustomEndpoint.value = endpoint
+        viewModelScope.launch {
+            repository.saveSetting("ai_custom_endpoint", endpoint)
+        }
+    }
+
+    fun testAiConnection() {
+        isTestingAiConnection.value = true
+        aiConnectionStatus.value = "Testing Gemini connection..."
+        viewModelScope.launch {
+            val (success, message) = AiService.testConnection(
+                customApiKey = aiCustomApiKey.value,
+                customEndpoint = aiCustomEndpoint.value
+            )
+            aiConnectionStatus.value = if (success) "✅ $message" else "❌ $message"
+            isTestingAiConnection.value = false
+        }
+    }
+
+    fun resetAiSettings() {
+        aiNavigatorStyle.value = AiNavigatorStyle.GUIDE
+        aiOfflineOnly.value = false
+        aiCustomApiKey.value = ""
+        aiCustomEndpoint.value = ""
+        aiConnectionStatus.value = null
+        viewModelScope.launch {
+            repository.saveSetting("ai_navigator_style", AiNavigatorStyle.GUIDE.id)
+            repository.saveSetting("ai_offline_only", "false")
+            repository.saveSetting("ai_custom_api_key", "")
+            repository.saveSetting("ai_custom_endpoint", "")
         }
     }
 
