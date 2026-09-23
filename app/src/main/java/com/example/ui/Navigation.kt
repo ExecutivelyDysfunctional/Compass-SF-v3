@@ -92,6 +92,9 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
     val mapClusteringMode = mutableStateOf(MapClusteringMode.BALANCED)
     val mapReducedMotion = mutableStateOf(false)
 
+    // --- Relevance Profile (Private & Local) UI State ---
+    val userProfile = mutableStateOf(UserProfile())
+
     // --- Search, Accessibility & Demographic Presets UI State (Chunk 3) ---
     val demographicPresets = mutableStateOf<Set<DemographicPreset>>(emptySet())
     val accessibilityMobilityMode = mutableStateOf(false)
@@ -252,6 +255,11 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             repository.getSetting("exclude_non_location")?.let {
                 excludeNonLocationResources.value = it.toBooleanStrictOrNull() ?: false
             }
+
+            // Load Relevance Profile (Private & Local)
+            try {
+                userProfile.value = repository.getUserProfile()
+            } catch (_: Exception) {}
 
             // Load AI Navigator Customization Preferences (Chunk 4)
             repository.getSetting("ai_navigator_style")?.let { id ->
@@ -999,6 +1007,61 @@ class CompassViewModel(application: Application) : AndroidViewModel(application)
             repository.saveSetting("exclude_non_location", "false")
         }
     }
+
+    // --- Relevance Profile (Private & Local) Methods ---
+
+    fun updateUserProfile(profile: UserProfile) {
+        userProfile.value = profile
+        viewModelScope.launch {
+            repository.saveUserProfile(profile)
+        }
+    }
+
+    fun resetUserProfile() {
+        userProfile.value = UserProfile()
+        viewModelScope.launch {
+            repository.resetUserProfile()
+        }
+    }
+
+    fun toggleProfilePrimaryNeed(needId: String) {
+        val current = userProfile.value.primaryNeeds.toMutableSet()
+        if (current.contains(needId)) current.remove(needId) else current.add(needId)
+        updateUserProfile(userProfile.value.copy(primaryNeeds = current))
+    }
+
+    fun toggleProfileDemographic(preset: DemographicPreset) {
+        val current = userProfile.value.demographics.toMutableSet()
+        if (current.contains(preset)) current.remove(preset) else current.add(preset)
+        updateUserProfile(userProfile.value.copy(demographics = current))
+    }
+
+    fun toggleProfileDietary(preset: DietaryPreset) {
+        val current = userProfile.value.dietary.toMutableSet()
+        if (current.contains(preset)) current.remove(preset) else current.add(preset)
+        updateUserProfile(userProfile.value.copy(dietary = current))
+    }
+
+    fun setProfileAccessibilityMobility(enabled: Boolean) {
+        updateUserProfile(userProfile.value.copy(accessibilityMobility = enabled))
+    }
+
+    fun toggleProfileAccessMethod(methodId: String) {
+        val current = userProfile.value.preferredAccessMethods.toMutableSet()
+        if (current.contains(methodId)) current.remove(methodId) else current.add(methodId)
+        updateUserProfile(userProfile.value.copy(preferredAccessMethods = current))
+    }
+
+    fun setProfilePreferredNeighborhood(neighborhood: String) {
+        updateUserProfile(userProfile.value.copy(preferredNeighborhood = neighborhood))
+    }
+
+    fun toggleProfileLanguage(language: String) {
+        val current = userProfile.value.preferredLanguages.toMutableSet()
+        if (current.contains(language)) current.remove(language) else current.add(language)
+        updateUserProfile(userProfile.value.copy(preferredLanguages = current))
+    }
+
 
     fun getVisitsFlow(resourceId: Int): Flow<List<Visit>> {
         return repository.getVisitsForResource(resourceId)

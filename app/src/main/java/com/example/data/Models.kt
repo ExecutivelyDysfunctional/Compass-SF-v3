@@ -534,3 +534,222 @@ fun Resource.isNonLocationOrHelpline(): Boolean {
     if (this.tags.any { tag -> nonLocTags.contains(tag.lowercase().trim()) }) return true
     return false
 }
+
+// --- Relevance Profile & Personalization Models ---
+
+@Serializable
+data class NeedCategory(
+    val id: String,
+    val title: String,
+    val icon: String,
+    val keywords: List<String> = emptyList()
+)
+
+@Serializable
+data class AccessMethod(
+    val id: String,
+    val title: String,
+    val icon: String,
+    val description: String = ""
+)
+
+object ProfileConstants {
+    val PRIMARY_NEEDS = listOf(
+        NeedCategory("food", "Food & Meals", "🍱", listOf("food", "meal", "pantry", "groceries", "dining", "breakfast", "lunch", "dinner", "soup")),
+        NeedCategory("shelter", "Shelter & Beds", "🏠", listOf("shelter", "housing", "beds", "night shelter", "mat", "navigation center")),
+        NeedCategory("hygiene", "Hygiene & Showers", "🧼", listOf("shower", "hygiene", "restroom", "toilet", "laundry", "clean")),
+        NeedCategory("health", "Medical & Dental", "🩺", listOf("clinic", "health", "medical", "doctor", "dental", "nurse", "prescription")),
+        NeedCategory("mental", "Crisis & Mental Health", "🧠", listOf("mental", "crisis", "counseling", "therapy", "psychiatric", "substance", "harm reduction", "recovery")),
+        NeedCategory("documents", "ID & Documents", "📄", listOf("id", "documents", "cal id", "birth certificate", "mail", "ssn", "dmv")),
+        NeedCategory("benefits", "Benefits & EBT", "💳", listOf("ebt", "calfresh", "benefits", "general assistance", "ga", "medi-cal", "cash")),
+        NeedCategory("legal", "Legal & Rights", "⚖️", listOf("legal", "lawyer", "attorney", "eviction", "tenant", "rights", "immigration", "court")),
+        NeedCategory("work", "Jobs & Training", "💼", listOf("job", "employment", "work", "training", "resume", "vocational", "career")),
+        NeedCategory("transportation", "Transportation", "🚌", listOf("transit", "bus", "bart", "muni", "clipper", "transportation", "ride", "token")),
+        NeedCategory("pets", "Pets & Animal Care", "🐾", listOf("pet", "pets", "dog", "cat", "animal", "vet", "pet food")),
+        NeedCategory("community", "Community & Drop-in", "🤝", listOf("community", "drop-in", "day center", "social", "support group", "activities"))
+    )
+
+    val ACCESS_METHODS = listOf(
+        AccessMethod("walk_in", "Walk-in / In-Person", "🚶", "Drop in directly with no appointment required"),
+        AccessMethod("phone", "Phone / Hotline", "📞", "Phone intakes, crisis helplines & telephone advice"),
+        AccessMethod("website", "Online / Web Portal", "🌐", "Online applications, digital portals & web intakes")
+    )
+
+    val LANGUAGES = listOf(
+        "English", "Spanish", "Cantonese", "Mandarin", "Tagalog", "Vietnamese", "Arabic", "Russian"
+    )
+
+    val NEIGHBORHOODS = listOf(
+        "Tenderloin", "Mission", "SoMa", "Bayview", "Castro", "Chinatown",
+        "Richmond", "Sunset", "Haight-Ashbury", "Western Addition", "Downtown / Civic Center"
+    )
+}
+
+@Serializable
+data class UserProfile(
+    val primaryNeeds: Set<String> = emptySet(),
+    val demographics: Set<DemographicPreset> = emptySet(),
+    val dietary: Set<DietaryPreset> = emptySet(),
+    val accessibilityMobility: Boolean = false,
+    val preferredAccessMethods: Set<String> = emptySet(),
+    val preferredNeighborhood: String = "",
+    val preferredLanguages: Set<String> = emptySet()
+) {
+    val isEmpty: Boolean
+        get() = primaryNeeds.isEmpty() &&
+                demographics.isEmpty() &&
+                dietary.isEmpty() &&
+                !accessibilityMobility &&
+                preferredAccessMethods.isEmpty() &&
+                preferredNeighborhood.isBlank() &&
+                preferredLanguages.isEmpty()
+
+    val activePreferenceCount: Int
+        get() {
+            var count = primaryNeeds.size + demographics.size + dietary.size + preferredAccessMethods.size + preferredLanguages.size
+            if (accessibilityMobility) count++
+            if (preferredNeighborhood.isNotBlank()) count++
+            return count
+        }
+}
+
+data class RelevanceResult(
+    val score: Int,
+    val reasons: List<String> = emptyList()
+)
+
+object ResourceRelevance {
+    fun scoreResource(resource: Resource, profile: UserProfile): RelevanceResult {
+        var score = 100 // baseline score
+        val reasons = mutableListOf<String>()
+
+        // Status signal
+        when (resource.status.lowercase()) {
+            "active" -> score += 10
+            "temporarily_closed" -> score -= 50
+            "closed" -> score -= 200
+        }
+
+        // Verification signal
+        when (resource.confidence.lowercase()) {
+            "verified" -> {
+                score += 15
+                val lastVer = resource.lastVerifiedAt
+                if (lastVer != null) {
+                    val ageDays = (System.currentTimeMillis() - lastVer) / (1000L * 60 * 60 * 24)
+                    if (ageDays < 30) score += 10
+                    else if (ageDays < 90) score += 5
+                }
+            }
+            "reported" -> score += 5
+            "unverified" -> score += 0
+        }
+
+        if (resource.favorite) {
+            score += 15
+            reasons.add("Favorite")
+        }
+
+        if (profile.isEmpty) {
+            return RelevanceResult(score, reasons)
+        }
+
+        val fullText = "${resource.name} ${resource.category} ${resource.summary} ${resource.description} ${resource.eligibility} ${resource.requirements.joinToString(" ")} ${resource.tags.joinToString(" ")} ${resource.alsoOffers.joinToString(" ")}".lowercase()
+
+        // 1. Primary Needs / Categories Match
+        if (profile.primaryNeeds.isNotEmpty()) {
+            for (needId in profile.primaryNeeds) {
+                val needObj = ProfileConstants.PRIMARY_NEEDS.find { it.id == needId }
+                val directCategoryMatch = resource.category.equals(needId, ignoreCase = true) ||
+                        resource.alsoOffers.any { it.equals(needId, ignoreCase = true) }
+                val keywordMatch = needObj?.keywords?.any { fullText.contains(it.lowercase()) } == true
+                if (directCategoryMatch || keywordMatch) {
+                    score += 40
+                    needObj?.let { reasons.add(it.title) }
+                }
+            }
+        }
+
+        // 2. Demographic Presets Match
+        if (profile.demographics.isNotEmpty()) {
+            for (demo in profile.demographics) {
+                val matches = demo.keywords.any { fullText.contains(it.lowercase()) }
+                if (matches) {
+                    score += 30
+                    reasons.add(demo.title)
+                }
+            }
+        }
+
+        // 3. Dietary Presets Match
+        if (profile.dietary.isNotEmpty()) {
+            for (diet in profile.dietary) {
+                val matches = diet.keywords.any { fullText.contains(it.lowercase()) }
+                if (matches) {
+                    score += 25
+                    reasons.add(diet.title)
+                }
+            }
+        }
+
+        // 4. Accessibility & Mobility
+        if (profile.accessibilityMobility) {
+            val isAcc = PresetMatcher.matchesAccessibility(resource, true)
+            if (isAcc) {
+                score += 25
+                reasons.add("Accessible")
+            }
+        }
+
+        // 5. Preferred Neighborhood
+        if (profile.preferredNeighborhood.isNotBlank()) {
+            val prefNh = profile.preferredNeighborhood.trim().lowercase()
+            val resNh = resource.neighborhood.trim().lowercase()
+            if (resNh.isNotBlank() && (resNh.contains(prefNh) || prefNh.contains(resNh))) {
+                score += 35
+                reasons.add(resource.neighborhood)
+            }
+        }
+
+        // 6. Access Methods Match
+        if (profile.preferredAccessMethods.isNotEmpty()) {
+            if (profile.preferredAccessMethods.contains("walk_in") && !resource.phoneLine && resource.address.isNotBlank() && !resource.isNonLocationOrHelpline()) {
+                score += 20
+            }
+            if (profile.preferredAccessMethods.contains("phone") && (resource.phoneLine || resource.phone.isNotBlank())) {
+                score += 20
+            }
+            if (profile.preferredAccessMethods.contains("website") && resource.website.isNotBlank()) {
+                score += 15
+            }
+        }
+
+        // 7. Preferred Languages
+        if (profile.preferredLanguages.isNotEmpty()) {
+            val hasLangMatch = profile.preferredLanguages.any { lang ->
+                resource.languages.any { it.equals(lang, ignoreCase = true) } ||
+                fullText.contains(lang.lowercase())
+            }
+            if (hasLangMatch) {
+                score += 25
+                reasons.add("Language Match")
+            }
+        }
+
+        return RelevanceResult(score, reasons.distinct())
+    }
+
+    fun rankResources(resources: List<Resource>, profile: UserProfile): List<Resource> {
+        if (profile.isEmpty) {
+            return resources.sortedByDescending { res ->
+                var base = 0
+                if (res.status == "active") base += 50
+                if (res.favorite) base += 20
+                if (res.confidence == "verified") base += 10
+                base
+            }
+        }
+        return resources.sortedByDescending { scoreResource(it, profile).score }
+    }
+}
+

@@ -487,6 +487,7 @@ fun NowScreen(
         resources,
         userLocation,
         sortByDistance,
+        viewModel.userProfile.value,
         viewModel.demographicPresets.value,
         viewModel.accessibilityMobilityMode.value,
         viewModel.dietaryPresets.value,
@@ -509,7 +510,7 @@ fun NowScreen(
                 viewModel.getDistanceToResource(res) ?: Double.MAX_VALUE
             }.take(4)
         } else {
-            openResources.take(4)
+            ResourceRelevance.rankResources(openResources, viewModel.userProfile.value).take(4)
         }
     }
 
@@ -554,6 +555,10 @@ fun NowScreen(
         
         item {
             ActivePresetsBanner(viewModel = viewModel)
+        }
+
+        item {
+            RelevanceProfileBanner(viewModel = viewModel)
         }
 
         // Quick Category Row & Map Banner
@@ -788,6 +793,7 @@ fun FindScreen(
         viewModel.accessibilityMobilityMode.value,
         viewModel.dietaryPresets.value,
         viewModel.excludeNonLocationResources.value,
+        viewModel.userProfile.value,
         viewModel.sourceShelterTechEnabled.value,
         viewModel.sourceDataSfEnabled.value,
         viewModel.source211Enabled.value,
@@ -819,7 +825,7 @@ fun FindScreen(
                 viewModel.getDistanceToResource(res) ?: Double.MAX_VALUE
             }
         } else {
-            list
+            ResourceRelevance.rankResources(list, viewModel.userProfile.value)
         }
     }
 
@@ -986,6 +992,11 @@ fun FindScreen(
         )
 
         ActivePresetsBanner(
+            viewModel = viewModel,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+        )
+
+        RelevanceProfileBanner(
             viewModel = viewModel,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
         )
@@ -3211,25 +3222,26 @@ fun SettingsScreen(
     }
 
     // Exact index targets in the LazyColumn
-    val targetWorkspaceIndex = 3
-    val targetFiltersIndex = 4
-    val targetAiIndex = 5
-    val targetThemeIndex = 6
-    val targetAccentIndex = 7
-    val targetTextIndex = 8
-    val targetDisplayIndex = 9
-    val targetMapIndex = 10
-    val targetIconIndex = 11
-    val targetSourcesIndex = 12
-    val targetIncognitoIndex = 13
-    val targetPhotoCacheIndex = 14
-    val targetReseedIndex = 15
-    val targetBackupIndex = 16
-    val targetHiddenIndex = 17
+    val targetProfileIndex = 3
+    val targetWorkspaceIndex = 4
+    val targetFiltersIndex = 5
+    val targetAiIndex = 6
+    val targetSourcesIndex = 7
+    val targetIncognitoIndex = 8
+    val targetPhotoCacheIndex = 9
+    val targetReseedIndex = 10
+    val targetThemeIndex = 11
+    val targetAccentIndex = 12
+    val targetTextIndex = 13
+    val targetDisplayIndex = 14
+    val targetMapIndex = 15
+    val targetIconIndex = 16
+    val targetBackupIndex = 17
+    val targetHiddenIndex = 18
     val targetStatsIndex = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) {
-        17 + 1 + hiddenResources.size + hiddenRmp.size
+        18 + 1 + hiddenResources.size + hiddenRmp.size
     } else {
-        17
+        18
     }
 
     Box(
@@ -3319,7 +3331,7 @@ fun SettingsScreen(
                                     .border(1.dp, Ink700, RoundedCornerShape(12.dp))
                                     .padding(horizontal = 8.dp, vertical = 3.dp)
                             ) {
-                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 16 else 15
+                                val totalSections = if (hiddenResources.isNotEmpty() || hiddenRmp.isNotEmpty()) 17 else 16
                                 Text(
                                     "$totalSections Sections",
                                     color = Mist200,
@@ -3333,6 +3345,7 @@ fun SettingsScreen(
 
                         val indexEntries = remember(hiddenResources.size, hiddenRmp.size, targetStatsIndex) {
                             val list = mutableListOf(
+                                Triple("👤 My Profile", "Needs & Boosts", targetProfileIndex),
                                 Triple("🧭 Navigation", "Startup & Bottom Bar", targetWorkspaceIndex),
                                 Triple("⚙️ Filters", "Demographic & Dietary", targetFiltersIndex),
                                 Triple("🤖 AI Navigator", "Style & Endpoint", targetAiIndex),
@@ -3579,6 +3592,626 @@ fun SettingsScreen(
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist100)
                         ) {
                             Text("Secondary", fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Section: Relevance Profile (Private & Local)
+        item {
+            val profile = viewModel.userProfile.value
+            var showResetDialog by remember { mutableStateOf(false) }
+
+            if (showResetDialog) {
+                AlertDialog(
+                    onDismissRequest = { showResetDialog = false },
+                    title = { Text("Reset Relevance Profile?", fontWeight = FontWeight.Bold, color = Mist100) },
+                    text = {
+                        Text(
+                            "This will clear all primary needs, demographic boosts, dietary preferences, access methods, neighborhood anchors, and language selections. Your search results will return to default ranking.",
+                            color = Mist300,
+                            fontSize = 13.sp
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                viewModel.resetUserProfile()
+                                showResetDialog = false
+                                Toast.makeText(context, "Relevance profile reset to default", Toast.LENGTH_SHORT).show()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Rose500, contentColor = OnAccentColor)
+                        ) {
+                            Text("Reset", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        OutlinedButton(
+                            onClick = { showResetDialog = false },
+                            border = BorderStroke(1.dp, Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Mist200)
+                        ) {
+                            Text("Cancel")
+                        }
+                    },
+                    containerColor = Ink900,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Ink900),
+                border = BorderStroke(if (highContrast) 2.dp else 1.dp, if (profile.isEmpty) Ink700 else Beacon500),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("settings_section_relevance_profile")
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .background(Beacon500.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text("MY PROFILE", color = Beacon400, fontSize = 9.sp, fontWeight = FontWeight.Black)
+                            }
+                            Text(
+                                "Relevance Profile",
+                                fontWeight = FontWeight.Bold,
+                                color = Beacon500,
+                                fontSize = 16.sp
+                            )
+                        }
+                        TextButton(
+                            onClick = { coroutineScope.launch { listState.animateScrollToItem(1) } },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                            modifier = Modifier.defaultMinSize(minHeight = 30.dp)
+                        ) {
+                            Text("Index ↑", color = Mist400, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+
+                    Text(
+                        "Personalize and boost resource recommendations based on your needs, language, access preferences, and neighborhood. Stored exclusively on your device — never sent to cloud or AI.",
+                        fontSize = 12.sp,
+                        color = Mist400
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Privacy Assurance Pill
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Ink950,
+                        border = BorderStroke(1.dp, Ink800),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("🔒", fontSize = 14.sp)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "100% Private & Local On-Device",
+                                    fontSize = 11.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Mist200
+                                )
+                                Text(
+                                    "No accounts, tracking, or publishing. Preferences boost relevant results without hiding other services.",
+                                    fontSize = 10.5.sp,
+                                    color = Mist400
+                                )
+                            }
+                            if (!profile.isEmpty) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Beacon500.copy(alpha = 0.2f),
+                                    border = BorderStroke(1.dp, Beacon500.copy(alpha = 0.5f))
+                                ) {
+                                    Text(
+                                        "${profile.activePreferenceCount} Active",
+                                        color = Beacon400,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Subsection 1: Primary Needs & Services
+                    Text(
+                        "PRIMARY NEEDS & URGENT SERVICES (+40 score boost)",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon400,
+                        letterSpacing = 0.8.sp
+                    )
+                    Text(
+                        "Select any services you are actively looking for to prioritize matching providers.",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (i in ProfileConstants.PRIMARY_NEEDS.indices step 2) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val need1 = ProfileConstants.PRIMARY_NEEDS[i]
+                                val isSelected1 = profile.primaryNeeds.contains(need1.id)
+                                FilterChip(
+                                    selected = isSelected1,
+                                    onClick = { viewModel.toggleProfilePrimaryNeed(need1.id) },
+                                    label = {
+                                        Text(
+                                            "${need1.icon} ${need1.title}",
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected1) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected1) Ink950 else Mist200,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Beacon500,
+                                        containerColor = Ink800
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        borderColor = if (isSelected1) Beacon500 else Ink700,
+                                        enabled = true,
+                                        selected = isSelected1
+                                    ),
+                                    modifier = Modifier.weight(1f).testTag("profile_need_${need1.id}")
+                                )
+
+                                if (i + 1 < ProfileConstants.PRIMARY_NEEDS.size) {
+                                    val need2 = ProfileConstants.PRIMARY_NEEDS[i + 1]
+                                    val isSelected2 = profile.primaryNeeds.contains(need2.id)
+                                    FilterChip(
+                                        selected = isSelected2,
+                                        onClick = { viewModel.toggleProfilePrimaryNeed(need2.id) },
+                                        label = {
+                                            Text(
+                                                "${need2.icon} ${need2.title}",
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSelected2) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected2) Ink950 else Mist200,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Beacon500,
+                                            containerColor = Ink800
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            borderColor = if (isSelected2) Beacon500 else Ink700,
+                                            enabled = true,
+                                            selected = isSelected2
+                                        ),
+                                        modifier = Modifier.weight(1f).testTag("profile_need_${need2.id}")
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection 2: Target Demographics
+                    Text(
+                        "TARGET DEMOGRAPHIC FOCUS (+30 score boost)",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon400,
+                        letterSpacing = 0.8.sp
+                    )
+                    Text(
+                        "Highlight affirming, specialized, or tailored community providers.",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (i in DemographicPreset.entries.indices step 2) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                val demo1 = DemographicPreset.entries[i]
+                                val isSelected1 = profile.demographics.contains(demo1)
+                                FilterChip(
+                                    selected = isSelected1,
+                                    onClick = { viewModel.toggleProfileDemographic(demo1) },
+                                    label = {
+                                        Text(
+                                            "${demo1.icon} ${demo1.title}",
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected1) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected1) Ink950 else Mist200,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Beacon500,
+                                        containerColor = Ink800
+                                    ),
+                                    border = FilterChipDefaults.filterChipBorder(
+                                        borderColor = if (isSelected1) Beacon500 else Ink700,
+                                        enabled = true,
+                                        selected = isSelected1
+                                    ),
+                                    modifier = Modifier.weight(1f).testTag("profile_demo_${demo1.id}")
+                                )
+
+                                if (i + 1 < DemographicPreset.entries.size) {
+                                    val demo2 = DemographicPreset.entries[i + 1]
+                                    val isSelected2 = profile.demographics.contains(demo2)
+                                    FilterChip(
+                                        selected = isSelected2,
+                                        onClick = { viewModel.toggleProfileDemographic(demo2) },
+                                        label = {
+                                            Text(
+                                                "${demo2.icon} ${demo2.title}",
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSelected2) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected2) Ink950 else Mist200,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        },
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = Beacon500,
+                                            containerColor = Ink800
+                                        ),
+                                        border = FilterChipDefaults.filterChipBorder(
+                                            borderColor = if (isSelected2) Beacon500 else Ink700,
+                                            enabled = true,
+                                            selected = isSelected2
+                                        ),
+                                        modifier = Modifier.weight(1f).testTag("profile_demo_${demo2.id}")
+                                    )
+                                } else {
+                                    Spacer(modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection 3: Dietary Preferences
+                    Text(
+                        "DIETARY PREFERENCES (+25 score boost)",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon400,
+                        letterSpacing = 0.8.sp
+                    )
+                    Text(
+                        "Prioritize meals, food pantries, and grocery distribution matching dietary choices.",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    ) {
+                        DietaryPreset.entries.forEach { diet ->
+                            val isSelected = profile.dietary.contains(diet)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.toggleProfileDietary(diet) },
+                                label = {
+                                    Text(
+                                        "${diet.icon} ${diet.title}",
+                                        fontSize = 11.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) Ink950 else Mist200
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Beacon500,
+                                    containerColor = Ink800
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = if (isSelected) Beacon500 else Ink700,
+                                    enabled = true,
+                                    selected = isSelected
+                                ),
+                                modifier = Modifier.testTag("profile_diet_${diet.id}")
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection 4: Accessibility & Mobility
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                            Text(
+                                "Mobility & Step-Free Entrance Priority (+25 boost)",
+                                fontWeight = FontWeight.Bold,
+                                color = Mist100,
+                                fontSize = 13.5.sp
+                            )
+                            Text(
+                                "Boost wheelchair accessible, elevator-equipped, and ground-floor locations.",
+                                fontSize = 11.sp,
+                                color = Mist400
+                            )
+                        }
+                        Switch(
+                            checked = profile.accessibilityMobility,
+                            onCheckedChange = { viewModel.setProfileAccessibilityMobility(it) },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = OnAccentColor,
+                                checkedTrackColor = Beacon500
+                            ),
+                            modifier = Modifier.testTag("profile_switch_mobility")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection 5: Preferred Access Methods
+                    Text(
+                        "PREFERRED ACCESS METHODS (+20 score boost)",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon400,
+                        letterSpacing = 0.8.sp
+                    )
+                    Text(
+                        "Boost services according to how you prefer to connect.",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ProfileConstants.ACCESS_METHODS.forEach { method ->
+                            val isSelected = profile.preferredAccessMethods.contains(method.id)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Beacon500.copy(alpha = 0.15f) else Ink800)
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) Beacon500.copy(alpha = 0.6f) else Ink700,
+                                        RoundedCornerShape(8.dp)
+                                    )
+                                    .clickable { viewModel.toggleProfileAccessMethod(method.id) }
+                                    .padding(horizontal = 10.dp, vertical = 8.dp)
+                                    .testTag("profile_access_${method.id}"),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(method.icon, fontSize = 16.sp)
+                                    Column {
+                                        Text(
+                                            method.title,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            fontSize = 12.5.sp,
+                                            color = if (isSelected) Beacon400 else Mist100
+                                        )
+                                        Text(
+                                            method.description,
+                                            fontSize = 10.5.sp,
+                                            color = Mist400
+                                        )
+                                    }
+                                }
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = { viewModel.toggleProfileAccessMethod(method.id) },
+                                    colors = CheckboxDefaults.colors(
+                                        checkedColor = Beacon500,
+                                        checkmarkColor = OnAccentColor
+                                    ),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection 6: Preferred Neighborhood Anchor
+                    Text(
+                        "PREFERRED NEIGHBORHOOD ANCHOR (+35 score boost)",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon400,
+                        letterSpacing = 0.8.sp
+                    )
+                    Text(
+                        "Boost resources located in your regular neighborhood or area of interest.",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    val activeNeighborhood = profile.preferredNeighborhood
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    ) {
+                        val isNone = activeNeighborhood.isBlank()
+                        FilterChip(
+                            selected = isNone,
+                            onClick = { viewModel.setProfilePreferredNeighborhood("") },
+                            label = {
+                                Text(
+                                    "🌐 All SF (No Anchor)",
+                                    fontSize = 11.sp,
+                                    color = if (isNone) Ink950 else Mist200
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = Beacon500,
+                                containerColor = Ink800
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                borderColor = if (isNone) Beacon500 else Ink700,
+                                enabled = true,
+                                selected = isNone
+                            ),
+                            modifier = Modifier.testTag("profile_neighborhood_none")
+                        )
+
+                        ProfileConstants.NEIGHBORHOODS.forEach { nh ->
+                            val isSelected = activeNeighborhood.equals(nh, ignoreCase = true)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = {
+                                    if (isSelected) viewModel.setProfilePreferredNeighborhood("")
+                                    else viewModel.setProfilePreferredNeighborhood(nh)
+                                },
+                                label = {
+                                    Text(
+                                        nh,
+                                        fontSize = 11.sp,
+                                        color = if (isSelected) Ink950 else Mist200
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Beacon500,
+                                    containerColor = Ink800
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = if (isSelected) Beacon500 else Ink700,
+                                    enabled = true,
+                                    selected = isSelected
+                                ),
+                                modifier = Modifier.testTag("profile_neighborhood_${nh.lowercase().replace(" ", "_")}")
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = Ink800)
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Subsection 7: Preferred Languages
+                    Text(
+                        "PREFERRED LANGUAGES (+25 score boost)",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Beacon400,
+                        letterSpacing = 0.8.sp
+                    )
+                    Text(
+                        "Prioritize providers offering translation, staff fluency, or multilingual materials.",
+                        fontSize = 11.sp,
+                        color = Mist400
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    ) {
+                        ProfileConstants.LANGUAGES.forEach { lang ->
+                            val isSelected = profile.preferredLanguages.contains(lang)
+                            FilterChip(
+                                selected = isSelected,
+                                onClick = { viewModel.toggleProfileLanguage(lang) },
+                                label = {
+                                    Text(
+                                        lang,
+                                        fontSize = 11.sp,
+                                        color = if (isSelected) Ink950 else Mist200
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = Beacon500,
+                                    containerColor = Ink800
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = if (isSelected) Beacon500 else Ink700,
+                                    enabled = true,
+                                    selected = isSelected
+                                ),
+                                modifier = Modifier.testTag("profile_language_${lang.lowercase()}")
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Action Buttons
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { showResetDialog = true },
+                            enabled = !profile.isEmpty,
+                            border = BorderStroke(1.dp, if (!profile.isEmpty) Rose500.copy(alpha = 0.6f) else Ink700),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = Rose500,
+                                disabledContentColor = Mist400.copy(alpha = 0.4f)
+                            ),
+                            modifier = Modifier.testTag("profile_reset_button")
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Reset Profile", fontSize = 12.sp)
+                        }
+
+                        if (!profile.isEmpty) {
+                            Text(
+                                "Profile Active (${profile.activePreferenceCount})",
+                                fontSize = 11.5.sp,
+                                color = Beacon400,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
@@ -8030,3 +8663,85 @@ fun ActivePresetsBanner(
         }
     }
 }
+
+@Composable
+fun RelevanceProfileBanner(
+    viewModel: CompassViewModel,
+    modifier: Modifier = Modifier
+) {
+    val profile = viewModel.userProfile.value
+    if (profile.isEmpty) return
+
+    val summaryText = remember(profile) {
+        val parts = mutableListOf<String>()
+        if (profile.primaryNeeds.isNotEmpty()) {
+            val names = profile.primaryNeeds.mapNotNull { id ->
+                ProfileConstants.PRIMARY_NEEDS.find { it.id == id }?.title?.split(" ")?.firstOrNull()
+            }
+            parts.add(names.joinToString(", "))
+        }
+        if (profile.preferredNeighborhood.isNotBlank()) {
+            parts.add(profile.preferredNeighborhood)
+        }
+        if (profile.demographics.isNotEmpty()) {
+            parts.add("${profile.demographics.size} demographic")
+        }
+        if (profile.dietary.isNotEmpty()) {
+            parts.add("${profile.dietary.size} dietary")
+        }
+        if (profile.accessibilityMobility) {
+            parts.add("Step-free")
+        }
+        if (profile.preferredLanguages.isNotEmpty()) {
+            parts.add(profile.preferredLanguages.joinToString(", "))
+        }
+        if (parts.isEmpty()) "${profile.activePreferenceCount} active boosts" else parts.joinToString(" • ")
+    }
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Beacon500.copy(alpha = 0.12f))
+            .border(1.dp, Beacon500.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            Icon(
+                Icons.Default.Stars,
+                contentDescription = null,
+                tint = Beacon500,
+                modifier = Modifier.size(16.dp)
+            )
+            Column {
+                Text(
+                    "Relevance Profile Active",
+                    color = Beacon500,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "Boosting: $summaryText",
+                    color = Mist200,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        TextButton(
+            onClick = { viewModel.resetUserProfile() },
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+            modifier = Modifier.defaultMinSize(minHeight = 28.dp)
+        ) {
+            Text("Reset", color = Beacon400, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+

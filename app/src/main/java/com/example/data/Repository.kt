@@ -119,6 +119,32 @@ class CompassRepository(private val dao: ResourceDao) {
         dao.insertSetting(AppSetting(key, value))
     }
 
+    private val profileJson = Json {
+        ignoreUnknownKeys = true
+        encodeDefaults = true
+        isLenient = true
+    }
+
+    suspend fun getUserProfile(): UserProfile = withContext(Dispatchers.IO) {
+        val raw = getSetting("userProfile") ?: return@withContext UserProfile()
+        if (raw.isBlank()) return@withContext UserProfile()
+        try {
+            profileJson.decodeFromString<UserProfile>(raw)
+        } catch (e: Exception) {
+            UserProfile()
+        }
+    }
+
+    suspend fun saveUserProfile(profile: UserProfile) = withContext(Dispatchers.IO) {
+        val json = profileJson.encodeToString(profile)
+        saveSetting("userProfile", json)
+    }
+
+    suspend fun resetUserProfile() = withContext(Dispatchers.IO) {
+        saveSetting("userProfile", "")
+    }
+
+
     suspend fun insertCapture(capture: Capture): Long = dao.insertCapture(capture)
     suspend fun updateCapture(capture: Capture) = dao.updateCapture(capture)
 
