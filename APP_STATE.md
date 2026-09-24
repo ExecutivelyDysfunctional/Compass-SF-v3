@@ -173,20 +173,40 @@
 - `APP_STATE.md` - Central application state registry and roadmap
 - `metadata.json` - Platform metadata and app identity
 - `app/build.gradle.kts` - Gradle module configuration, renameDebugApk task, and dependencies
-- `app/src/main/AndroidManifest.xml` - Android application manifest with permissions and theme setup
+- `app/src/main/AndroidManifest.xml` - Android application manifest with permissions, dynamic icon activity aliases, and theme setup
 - `app/src/main/res/values/strings.xml` - Android localized strings
-- `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` - Adaptive launcher icon definition
+- `app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml` - Adaptive launcher icon definition (default)
+- `app/src/main/res/mipmap-anydpi-v26/ic_launcher_beacon.xml` - Adaptive launcher icon definition (beacon alias)
+- `app/src/main/res/mipmap-anydpi-v26/ic_launcher_bridge.xml` - Adaptive launcher icon definition (bridge alias)
+- `app/src/main/res/mipmap-anydpi-v26/ic_launcher_lantern.xml` - Adaptive launcher icon definition (lantern alias)
+- `app/src/main/res/mipmap-anydpi-v26/ic_launcher_wayfinder.xml` - Adaptive launcher icon definition (wayfinder alias)
 - `app/src/main/res/drawable/ic_launcher_background.xml` - Launcher background drawable
 - `app/src/main/res/drawable/ic_launcher_foreground.xml` - Launcher foreground drawable
+- `app/src/main/res/drawable/ic_launcher_fg_*.xml` - Dynamic app icon foreground vector drawables
 - `app/src/main/java/com/example/MainActivity.kt` - Main Activity, top bar, FAB, dynamic bottom navigation, and NavHost routing
-- `app/src/main/java/com/example/ui/Screens.kt` - Compose screens (Now, Find, Ask, Day, Ebt, Add, Info, Settings, Detail, Photo Viewer, Dialogs)
+- `app/src/main/java/com/example/ui/Screens.kt` - Core Compose screens (Now, Find, Ask, Day, Ebt, Add, Info, Detail, Photo Viewer, Dialogs)
+- `app/src/main/java/com/example/ui/StreetAlertsUi.kt` - Street alerts banner, morning briefing card, and reminder configuration dialogs
 - `app/src/main/java/com/example/ui/ComposeCanvasMap.kt` - Native Jetpack Compose Canvas vector map engine with gesture pan/zoom, clustering, radar, transit layers, and preview cards
 - `app/src/main/java/com/example/ui/Navigation.kt` - Screen sealed class definitions and CompassViewModel state management
 - `app/src/main/java/com/example/ui/Theme.kt` - Custom M3 theming system, theme modes, accent palettes, and typography scaling
+- `app/src/main/java/com/example/ui/settings/SettingsHub.kt` - Main Settings container with quick-jump index grid and scroll coordination
+- `app/src/main/java/com/example/ui/settings/SettingsComponents.kt` - Modular reusable settings UI components (cards, badges, buttons, pickers)
+- `app/src/main/java/com/example/ui/settings/WorkspaceSettings.kt` - Workspace, default landing screen, tab reordering, and neighborhood anchor settings
+- `app/src/main/java/com/example/ui/settings/SearchSettings.kt` - Search presets, demographic affinities, and accessibility filters
+- `app/src/main/java/com/example/ui/settings/ProfileSettings.kt` - On-device user relevance profile and priority customization
+- `app/src/main/java/com/example/ui/settings/AiSettings.kt` - AI Navigator conciseness styles, offline heuristics toggle, and custom API key configuration
+- `app/src/main/java/com/example/ui/settings/AppearanceSettings.kt` - Theme modes, accent palettes, font scaling, high contrast, and dynamic app icon selection
+- `app/src/main/java/com/example/ui/settings/MapSettings.kt` - Cartography vector layers, marker clustering density, and battery saver mode
+- `app/src/main/java/com/example/ui/settings/AlertsSettings.kt` - Meal cutoff alerts, morning briefing, severe weather advisories, and test notification triggers
+- `app/src/main/java/com/example/ui/settings/StorageSettings.kt` - Offline flyer photo cache inspector, database factory re-seeding, and granular data export/import
+- `app/src/main/java/com/example/ui/settings/PrivacySettings.kt` - Ephemeral incognito search mode and civic data source toggles
+- `app/src/main/java/com/example/ui/settings/AboutSettings.kt` - App information, local database record statistics, and reset workspace
 - `app/src/main/java/com/example/data/LocationHelper.kt` - 100% on-device Haversine proximity calculations and SF neighborhood anchor resolution
 - `app/src/main/java/com/example/data/Models.kt` - Room entities, data transfer objects, UserProfile, Relevance matching, demographic & dietary presets, and JSON converters
 - `app/src/main/java/com/example/data/Database.kt` - Room Database definition and ResourceDao interface
 - `app/src/main/java/com/example/data/Repository.kt` - CompassRepository data access layer, backup/restore logic, cache management, and DB seeding
 - `app/src/main/java/com/example/data/AiService.kt` - Gemini 3.5 Flash REST client, structured parsing, connection tester, and offline fallbacks
+- `app/src/main/java/com/example/data/NotificationHelper.kt` - Android 13+ notification channel setup and local push notification delivery
+- `app/src/main/java/com/example/data/AppIconManager.kt` - Dynamic launcher icon alias switcher (PackageManager component enablement)
 - `app/src/main/java/com/example/data/SeedData.kt` - Pre-seeded curated SF community resources and EBT restaurant locations
 - `app/src/test/java/com/example/ResourceRelevanceTest.kt` - Unit tests for UserProfile serialization, relevance ranking, and multi-factor scoring
