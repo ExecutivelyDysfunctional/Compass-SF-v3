@@ -28,6 +28,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.ui.*
+import com.example.ui.settings.*
 
 class MainActivity : ComponentActivity() {
     private val viewModel: CompassViewModel by viewModels()
